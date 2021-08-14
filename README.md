@@ -1,5 +1,9 @@
-# js13k 2021
+# JS13k 2021
 
-https://js13kgames.com
+My 2021 entry for the [js13kGames](https://js13kgames.com) competition.
 
-Theme: Space
+## Size Log
+
+|Commit|Size (bytes)|Comments|
+|------|------------|--------|
+|`a37efd3`|`2137`|Initial raycasting renderer and basic optimizations|
