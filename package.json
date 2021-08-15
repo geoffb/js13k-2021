@@ -6,7 +6,9 @@
 		"build-copy": "mkdir -p build && cp htdocs/* build",
 		"build-min": "terser build/main.js -o build/main.js -c -m --toplevel",
 		"build-zip": "mkdir -p dist && zip -rjX9 dist/js13k-2021.zip build/*",
-		"build": "run-s build-copy build-min build-zip"
+		"build": "run-s build-copy build-min build-zip",
+		"release-itch": "butler push dist/js13k-2021.zip gosub/js13k-2021:web",
+		"release": "run-s clean build release-itch"
 	},
 	"devDependencies": {
 		"http-server": "^13.0.0",
