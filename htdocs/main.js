@@ -21,6 +21,19 @@ const PLAYER_ROT_SPEED = Math.PI * 1.2;
 /** Key code which have their default behavior suppressed */
 const SUPPRESS_KEYS = [32, 37, 38, 39, 40, 65, 68, 83, 87];
 
+/** Prefabricated entities */
+const PREFABS = {
+	player: {
+		pos: { x: 0, y: 0, f: 0 },
+		body: { w: 0.5, h: 0.5, vx: 0, vy: 0 }
+	},
+	dummy: {
+		pos: { x: 0, y: 0, f: 0 },
+		body: { w: 0.5, h: 0.5, vx: 0, vy: 0 },
+		sprite: { i: 1 }
+	}
+};
+
 /** Keyboard state */
 const keyboard = {};
 
@@ -51,10 +64,20 @@ let camera_plane_x = 0;
 let camera_plane_y = CAMERA_PLANE_LENGTH;
 
 /** Player entity */
-let player;
+let player_id = 0;
 
-/** Simulation entities */
-const entities = [];
+/** Simulation components */
+const components = {};
+
+/** Next entity ID */
+let next_entity_id = 1;
+
+/** Simulation systems which operate on entities */
+const systems = [];
+
+/** Temp rects for collision checking */
+const tile_bb = { x: 0, y: 0, w: 1, h: 1 };
+const temp_rect = { x: 0, y: 0, w: 0, h: 0 };
 
 /** Initialize the map to a new size */
 function init_map(width, height) {
@@ -73,11 +96,6 @@ function set_camera(x, y, facing_x, facing_y) {
 	camera_plane_y = facing_x * CAMERA_PLANE_LENGTH;
 }
 
-/** Sync camera to a given entity */
-function sync_camera(entity) {
-	set_camera(entity.x, entity.y, Math.cos(entity.f), Math.sin(entity.f));
-}
-
 /** Handle a keyboard event */
 function handle_key(e, state) {
 	keyboard[e.keyCode] = !!state;
@@ -94,9 +112,57 @@ function key_down(...keys) {
 	return false;
 }
 
-/** Create a new entity */
-function make_entity(x, y, facing, sprite) {
-	return { x, y, f: facing, s: sprite };
+/** Spawn an entity from a prefab definition */
+function spawn_prefab_entity(prefabKey, x, y, facing) {
+	const id = next_entity_id++;
+	const prefabComponents = PREFABS[prefabKey];
+	for (const componentKey in prefabComponents) {
+		const data = Object.assign({}, prefabComponents[componentKey]);
+		add_entity_component(id, componentKey, data);
+	}
+	const pos = get_entity_component(id, "pos");
+	if (pos !== undefined) {
+		pos.x = x || pos.x;
+		pos.y = y || pos.y;
+		pos.f = facing || pos.f;
+	}
+	return id;
+}
+
+/** Add a component for a given entity */
+function add_entity_component(id, key, data) {
+	let group = components[key];
+	if (group === undefined) {
+		group = new Map();
+		components[key] = group;
+	}
+	group.set(id, data);
+}
+
+/** Get a component for a given entity */
+function get_entity_component(id, key) {
+	const group = components[key];
+	if (group !== undefined) {
+		return group.get(id);
+	}
+}
+
+/** Return the sign of a given number */
+function sign(n) {
+	return n > 0 ? 1 : n === 0 ? 0 : -1;
+}
+
+/** Calculate the intersection rectangle of overlapping rectangles */
+function rect_intersection(a, b, out) {
+	if (out === undefined) { out = {}; }
+	const x1 = Math.min(a.x + a.w, b.x + b.w);
+	const x2 = Math.max(a.x, b.x);
+	const y1 = Math.min(a.y + a.h, b.y + b.h);
+	const y2 = Math.max(a.y, b.y);
+	out.x = Math.min(x1, x2);
+	out.y = Math.min(y1, y2);
+	out.w = Math.max(0, x1 - x2);
+	out.h = Math.max(0, y1 - y2);
 }
 
 /** Cast a ray within the map, and return resulting hit info */
@@ -169,8 +235,124 @@ function raycast(ox, oy, dx, dy) {
 	return result;
 }
 
+// #############################################################################
+// ### SYSTEMS #################################################################
+// #############################################################################
+
+/** User input system */
+function system_input(dt) {
+	const pos = get_entity_component(player_id, "pos");
+	const facing_x = Math.cos(pos.f);
+	const facing_y = Math.sin(pos.f);
+	const move_distance = PLAYER_MOVE_SPEED * dt;
+	const rot_distance = PLAYER_ROT_SPEED * dt;
+	if (key_down(38, 87)) {
+		pos.x += facing_x * move_distance;
+		pos.y += facing_y * move_distance;
+	} else if (key_down(40, 83)) {
+		pos.x -= facing_x * move_distance;
+		pos.y -= facing_y * move_distance;
+	}
+	if (key_down(37, 65)) {
+		pos.f -= rot_distance;
+	} else if (key_down(39, 68)) {
+		pos.f += rot_distance;
+	}
+}
+
+function update_bounding_box(pos, body) {
+	if (body.bb === undefined) {
+		body.bb = { x: 0, y: 0, w: 0, h: 0 };
+	}
+	body.bb.x = pos.x - body.w / 2;
+	body.bb.y = pos.y - body.h / 2;
+	body.bb.w = body.w;
+	body.bb.h = body.h;
+}
+
+/** Physics system */
+function system_physics(dt) {
+	const bodies = components.body;
+	if (bodies === undefined) { return; }
+
+	for (const [id, body] of bodies) {
+		const pos = get_entity_component(id, "pos");
+		pos.x += body.vx * dt;
+		pos.y += body.vy * dt;
+
+		update_bounding_box(pos, body);
+
+		// Constrain physical bodies to the map
+		if (body.bb.x < 0) {
+			body.bb.x = 0;
+		} else if (body.bb.x + body.bb.w >= map_width) {
+			body.bb.x = map_width - body.bb.w;
+		}
+		if (body.bb.y < 0) {
+			body.bb.y = 0;
+		} else if (body.bb.y + body.bb.h >= map_height) {
+			body.bb.y = map_height - body.bb.h;
+		}
+
+		// Detect tile map collisions
+		const ox = Math.floor(body.bb.x);
+		const oy = Math.floor(body.bb.y);
+		const tx = Math.floor(body.bb.x + body.bb.w);
+		const ty = Math.floor(body.bb.y + body.bb.h);
+		const tiles = [];
+		for (let y = oy; y <= ty; y++) {
+			for (let x = ox; x <= tx; x++) {
+				const index = y * map_width + x;
+				if (map_tiles[index] > 0) {
+					tile_bb.x = x;
+					tile_bb.y = y;
+					rect_intersection(body.bb, tile_bb, temp_rect);
+					tiles.push({
+						x: tile_bb.x,
+						y: tile_bb.y,
+						a: temp_rect.w * temp_rect.h
+					});
+				}
+			}
+		}
+
+		// Resolve tile map collisions
+		if (tiles.length > 0) {
+			// Sort tiles by largest intersection area
+			if (tiles.length > 1) {
+				tiles.sort((a, b) => b.a - a.a);
+			}
+			// Iterate over tiles and adjust body bounding box
+			for (const tile of tiles) {
+				tile_bb.x = tile.x;
+				tile_bb.y = tile.y;
+				rect_intersection(body.bb, tile_bb, temp_rect);
+				if (temp_rect.w * temp_rect.h > 0) {
+					if (temp_rect.w < temp_rect.h) {
+						const sx = sign((body.bb.x + body.bb.w / 2) - (temp_rect.x + temp_rect.w / 2));
+						body.bb.x += temp_rect.w * sx;
+					} else {
+						const sy = sign((body.bb.y + body.bb.h / 2) - (temp_rect.y + temp_rect.h / 2));
+						body.bb.y += temp_rect.h * sy;
+					}
+				}
+			}
+		}
+
+		// Sync position to bounding box
+		pos.x = body.bb.x + body.w / 2;
+		pos.y = body.bb.y + body.h / 2;
+	}
+}
+
+/** Camera management system */
+function system_camera() {
+	const pos = get_entity_component(player_id, "pos");
+	set_camera(pos.x, pos.y, Math.cos(pos.f), Math.sin(pos.f));
+}
+
 /** Render the map/world to the canvas */
-function render_map() {
+function system_render_map() {
 	const half_height = CAMERA_HEIGHT / 2;
 
 	// Draw ceiling/sky
@@ -233,16 +415,19 @@ function render_map() {
 }
 
 /** Render entities to the canvas */
-function render_entities() {
-	const len = entities.length;
-	var order = new Array(len);
-	var distance = new Array(len);
+function system_render_entities() {
+	// Get all sprite components
+	const sprites = components["sprite"];
+	if (sprites === undefined) { return; }
 
 	// Determine each entity's distance from the camera
-	for (let i = 0; i < len; ++i) {
-		const entity = entities[i];
-		order[i] = i;
-		distance[i] = ((camera_x - entity.x) * (camera_x - entity.x) + (camera_y - entity.y) * (camera_y - entity.y));
+	let order_index = 0;
+	const order = new Array(sprites.size);
+	const distance = {};
+	for (const [id] of sprites) {
+		order[order_index++] = id;
+		const pos = get_entity_component(id, "pos");
+		distance[id] = ((camera_x - pos.x) * (camera_x - pos.x) + (camera_y - pos.y) * (camera_y - pos.y));
 	}
 
 	// Sort entities by their distance from the camera
@@ -250,15 +435,12 @@ function render_entities() {
 		return distance[b] - distance[a];
 	});
 
-	// Draw each entity
-	for (let i = 0; i < len; ++i) {
-		const entity_index = order[i];
-		const entity = entities[entity_index];
+	// Draw each sprite
+	for (const id of order) {
+		const pos = get_entity_component(id, "pos");
 
-		if (entity.s === undefined) { continue; }
-
-		const ex = entity.x - camera_x;
-		const ey = entity.y - camera_y;
+		const ex = pos.x - camera_x;
+		const ey = pos.y - camera_y;
 
 		// Required for correct matrix multiplication
 		var inv_det = 1.0 / (camera_plane_x * camera_facing_y - camera_facing_x * camera_plane_y);
@@ -288,7 +470,7 @@ function render_entities() {
 		for (let x = draw_start_x; x < draw_end_x; ++x) {
 			if (ty > 0 && x > 0 && x < CAMERA_WIDTH && ty < depth_buffer[x]) {
 				let texture_x = Math.floor((x - (-sprite_width / 2 + sx)) * TEXTURE_SIZE / sprite_width);
-				texture_x += entity.s * TEXTURE_SIZE;
+				texture_x += sprites.get(id).i * TEXTURE_SIZE;
 				ctx.drawImage(textures,
 					texture_x, 0, 1, TEXTURE_SIZE,
 					x, ~~draw_start_y, 1, ~~(draw_end_y - draw_start_y));
@@ -297,35 +479,17 @@ function render_entities() {
 	}
 }
 
-/** Handle user input */
-function input(dt) {
-	const facing_x = Math.cos(player.f);
-	const facing_y = Math.sin(player.f);
-	const move_distance = PLAYER_MOVE_SPEED * dt;
-	const rot_distance = PLAYER_ROT_SPEED * dt;
-	if (key_down(38, 87)) {
-		player.x += facing_x * move_distance;
-		player.y += facing_y * move_distance;
-	} else if (key_down(40, 83)) {
-		player.x -= facing_x * move_distance;
-		player.y -= facing_y * move_distance;
-	}
-	if (key_down(37, 65)) {
-		player.f -= rot_distance;
-	} else if (key_down(39, 68)) {
-		player.f += rot_distance;
-	}
-}
-
 /** Frame handler */
 function frame(time) {
+	// Calculate delta time
 	const dt = (time - last_frame) / 1000;
 	last_frame = time;
-	input(dt);
-	// TODO: Update simulation
-	sync_camera(player);
-	render_map();
-	render_entities();
+
+	// Execute systems
+	for (const sys of systems) {
+		sys(dt);
+	}
+
 	requestAnimationFrame(frame);
 }
 
@@ -368,6 +532,15 @@ function main() {
 	ctx = canvas.getContext("2d");
 	ctx.imageSmoothingEnabled = false;
 
+	// Init systems
+	systems.push(
+		system_input,
+		system_physics,
+		system_camera,
+		system_render_map,
+		system_render_entities
+	);
+
 	// Init map
 	init_map(20, 20);
 	for (let i = 0; i < map_tiles.length; i++) {
@@ -378,17 +551,13 @@ function main() {
 		} else {
 			map_tiles[i] = Math.random() > 0.1 ? 0 : 1;
 			if (map_tiles[i] === 0 && Math.random() < 0.05) {
-				entities.push(make_entity(x + 0.5, y + 0.5, 0, 1));
+				spawn_prefab_entity("dummy", x + 0.5, y + 0.5, 0);
 			}
 		}
 	}
 
 	// Init player
-	player = make_entity(1.5, 1.5, 0);
-	entities.push(player);
-
-	// Set camera position
-	sync_camera(player);
+	player_id = spawn_prefab_entity("player", 1.5, 1.5, 0);
 
 	// Detect keyboard state
 	window.onkeydown = (e) => handle_key(e, true);
