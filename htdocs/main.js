@@ -25,11 +25,11 @@ const SUPPRESS_KEYS = [32, 37, 38, 39, 40, 65, 68, 83, 87];
 const PREFABS = {
 	player: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.5, h: 0.5, vx: 0, vy: 0 }
+		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 0 }
 	},
 	dummy: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.5, h: 0.5, vx: 0, vy: 0 },
+		body: { w: 0.6, h: 0.6, vx: 0, vy: 0, b: 1 },
 		sprite: { i: 1 }
 	}
 };
@@ -331,9 +331,11 @@ function system_physics(dt) {
 					if (temp_rect.w < temp_rect.h) {
 						const sx = sign((body.bb.x + body.bb.w / 2) - (temp_rect.x + temp_rect.w / 2));
 						body.bb.x += temp_rect.w * sx;
+						body.vx *= -body.b;
 					} else {
 						const sy = sign((body.bb.y + body.bb.h / 2) - (temp_rect.y + temp_rect.h / 2));
 						body.bb.y += temp_rect.h * sy;
+						body.vy *= -body.b;
 					}
 				}
 			}
@@ -551,7 +553,11 @@ function main() {
 		} else {
 			map_tiles[i] = Math.random() > 0.1 ? 0 : 1;
 			if (map_tiles[i] === 0 && Math.random() < 0.05) {
-				spawn_prefab_entity("dummy", x + 0.5, y + 0.5, 0);
+				const angle = Math.random() * Math.PI * 2;
+				const id = spawn_prefab_entity("dummy", x + 0.5, y + 0.5, 0);
+				const body = get_entity_component(id, "body");
+				body.vx = Math.cos(angle) * 0.75;
+				body.vy = Math.sin(angle) * 0.75;
 			}
 		}
 	}
