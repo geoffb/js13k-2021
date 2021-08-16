@@ -28,11 +28,11 @@ const SUPPRESS_KEYS = [32, 37, 38, 39, 40, 65, 68, 83, 87];
 const PREFABS = {
 	player: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 0 }
+		body: { w: 0.4, h: 0.4, vx: 0, vy: 0, b: 0 }
 	},
 	dummy: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.6, h: 0.6, vx: 0, vy: 0, b: 1 },
+		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 1 },
 		sprite: { i: 1 }
 	}
 };
