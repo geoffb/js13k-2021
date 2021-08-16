@@ -18,6 +18,9 @@ const PLAYER_MOVE_SPEED = 4;
 /** Player rotation speed, in radians per second */
 const PLAYER_ROT_SPEED = Math.PI * 1.2;
 
+/** Size of spatial lookup tiles, in map tiles */
+const SPATIAL_TILE_SIZE = 2;
+
 /** Key code which have their default behavior suppressed */
 const SUPPRESS_KEYS = [32, 37, 38, 39, 40, 65, 68, 83, 87];
 
@@ -75,6 +78,11 @@ let next_entity_id = 1;
 /** Simulation systems which operate on entities */
 const systems = [];
 
+/** Simulation spatial map for broad phase collision detection */
+let spatial_width = 0;
+let spatial_height = 0;
+const spatial_tiles = [];
+
 /** Temp rects for collision checking */
 const tile_bb = { x: 0, y: 0, w: 1, h: 1 };
 const temp_rect = { x: 0, y: 0, w: 0, h: 0 };
@@ -84,6 +92,12 @@ function init_map(width, height) {
 	map_width = width;
 	map_height = height;
 	map_tiles = new Uint8Array(map_width * map_height);
+	spatial_width = Math.ceil(width / SPATIAL_TILE_SIZE);
+	spatial_height = Math.ceil(height / SPATIAL_TILE_SIZE);
+	spatial_tiles.length = 0;
+	for (let i = 0; i < spatial_width * spatial_height; i++) {
+		spatial_tiles.push([]);
+	}
 }
 
 /** Set the camera position and facing */
@@ -110,6 +124,40 @@ function key_down(...keys) {
 		if (keyboard[key]) { return true; }
 	}
 	return false;
+}
+
+function clear_spatial_map() {
+	for (const bucket of spatial_tiles) {
+		bucket.length = 0;
+	}
+}
+
+function insert_spatial_bounds(id, bb) {
+	const ox = Math.floor(bb.x / SPATIAL_TILE_SIZE);
+	const oy = Math.floor(bb.y / SPATIAL_TILE_SIZE);
+	const tx = Math.floor((bb.x + bb.w) / SPATIAL_TILE_SIZE);
+	const ty = Math.floor((bb.y + bb.h) / SPATIAL_TILE_SIZE);
+	for (let y = oy; y <= ty; y++) {
+		for (let x = ox; x <= tx; x++) {
+			const index = (y * spatial_width) + x;
+			spatial_tiles[index].push(id);
+		}
+	}
+}
+
+function get_spatial_neighbors(bb) {
+	const neighbors = [];
+	const ox = Math.floor(bb.x / SPATIAL_TILE_SIZE);
+	const oy = Math.floor(bb.y / SPATIAL_TILE_SIZE);
+	const tx = Math.floor((bb.x + bb.w) / SPATIAL_TILE_SIZE);
+	const ty = Math.floor((bb.y + bb.h) / SPATIAL_TILE_SIZE);
+	for (let y = oy; y <= ty; y++) {
+		for (let x = ox; x <= tx; x++) {
+			const index = (y * spatial_width) + x;
+			neighbors.push(...spatial_tiles[index]);
+		}
+	}
+	return neighbors;
 }
 
 /** Spawn an entity from a prefab definition */
@@ -152,6 +200,19 @@ function sign(n) {
 	return n > 0 ? 1 : n === 0 ? 0 : -1;
 }
 
+function hash_ids(a, b) {
+	return a < b ? (a * 100 + b) : (b * 100 + a);
+}
+
+function rect_overlap(a, b) {
+	return (
+		a.x < b.x + b.w &&
+		a.x + a.w > b.x &&
+		a.y < b.y + b.h &&
+		a.y + a.h > b.y
+	);
+}
+
 /** Calculate the intersection rectangle of overlapping rectangles */
 function rect_intersection(a, b, out) {
 	if (out === undefined) { out = {}; }
@@ -163,6 +224,7 @@ function rect_intersection(a, b, out) {
 	out.y = Math.min(y1, y2);
 	out.w = Math.max(0, x1 - x2);
 	out.h = Math.max(0, y1 - y2);
+	return out;
 }
 
 /** Cast a ray within the map, and return resulting hit info */
@@ -275,6 +337,8 @@ function system_physics(dt) {
 	const bodies = components.body;
 	if (bodies === undefined) { return; }
 
+	clear_spatial_map();
+
 	for (const [id, body] of bodies) {
 		const pos = get_entity_component(id, "pos");
 		pos.x += body.vx * dt;
@@ -344,6 +408,53 @@ function system_physics(dt) {
 		// Sync position to bounding box
 		pos.x = body.bb.x + body.w / 2;
 		pos.y = body.bb.y + body.h / 2;
+
+		insert_spatial_bounds(id, body.bb);
+	}
+
+	// Find colliding pairs
+	const pairs = [];
+	const checked = [];
+	for (const [id, body] of bodies) {
+		const neighbors = get_spatial_neighbors(body.bb);
+		for (const neighbor_id of neighbors) {
+			if (neighbor_id === id) { continue; }
+			const hash = hash_ids(id, neighbor_id);
+			if (checked.indexOf(hash) !== -1) { continue; }
+			checked.push(hash);
+			const neighbor_body = get_entity_component(neighbor_id, "body");
+			if (rect_overlap(body.bb, neighbor_body.bb)) {
+				pairs.push([id, neighbor_id, rect_intersection(body.bb, neighbor_body.bb)]);
+			}
+		}
+	}
+
+	// Resolve colliding pairs
+	for (const [a, b, intersection] of pairs) {
+		// TODO: Allow for static vs dynamic collisions
+		const body_a = get_entity_component(a, "body");
+		const body_b = get_entity_component(b, "body");
+		const pos_a = get_entity_component(a, "pos");
+		const pos_b = get_entity_component(b, "pos");
+		if (intersection.w < intersection.h) {
+			// Separate along the X axis
+			const hw = intersection.w / 2;
+			const ix = intersection.x + hw;
+			pos_a.x += hw * sign(pos_a.x - ix);
+			pos_b.x += hw * sign(pos_b.x - ix);
+			body_a.vx *= -body_a.b;
+			body_b.vx *= -body_b.b;
+		} else {
+			// Separate along the Y axis
+			const hh = intersection.h / 2;
+			const iy = intersection.y + hh;
+			pos_a.y += hh * sign(pos_a.y - iy);
+			pos_b.y += hh * sign(pos_b.y - iy);
+			body_a.vy *= -body_a.b;
+			body_b.vy *= -body_b.b;
+		}
+		update_bounding_box(pos_a, body_a);
+		update_bounding_box(pos_b, body_b);
 	}
 }
 
