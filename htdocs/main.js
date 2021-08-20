@@ -140,7 +140,9 @@ function insert_spatial_bounds(id, bb) {
 	for (let y = oy; y <= ty; y++) {
 		for (let x = ox; x <= tx; x++) {
 			const index = (y * spatial_width) + x;
-			spatial_tiles[index].push(id);
+			if (index < spatial_tiles.length) {
+				spatial_tiles[index].push(id);
+			}
 		}
 	}
 }
