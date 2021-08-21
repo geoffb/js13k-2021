@@ -34,6 +34,7 @@ const COLLISION_GROUPS = new Map([
 	[hash_ids(GROUP_ENEMY, GROUP_ENEMY), 1]
 ]);
 
+
 /** Prefabricated entities */
 const PREFABS = {
 	player: {
@@ -47,7 +48,8 @@ const PREFABS = {
 	},
 	bullet: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.25, h: 0.25, vx: 0, vy: 0, b: 1, g: GROUP_PLAYER, c: [] },
+		body: { w: 0.25, h: 0.25, vx: 0, vy: 0, b: 0, t: 1, g: GROUP_PLAYER, c: [] },
+		bul: {},
 		sprite: { i: 2 }
 	}
 };
@@ -222,6 +224,13 @@ function get_entity_component(id, key) {
 	}
 }
 
+/** Remove an entity from the world */
+function remove_entity(id) {
+	for (const key in components) {
+		components[key].delete(id);
+	}
+}
+
 /** Return the sign of a given number */
 function sign(n) {
 	return n > 0 ? 1 : n === 0 ? 0 : -1;
@@ -381,7 +390,8 @@ function system_physics(dt) {
 	clear_spatial_map();
 
 	for (const [id, body] of bodies) {
-		// Clear contact list
+		// Reset environment collision flag and contact list
+		body.e = 0;
 		body.c.length = 0;
 
 		// Update body's position
@@ -394,13 +404,17 @@ function system_physics(dt) {
 		// Constrain physical bodies to the map
 		if (body.bb.x < 0) {
 			body.bb.x = 0;
+			body.e = 1;
 		} else if (body.bb.x + body.bb.w >= map_width) {
 			body.bb.x = map_width - body.bb.w;
+			body.e = 1;
 		}
 		if (body.bb.y < 0) {
 			body.bb.y = 0;
+			body.e = 1;
 		} else if (body.bb.y + body.bb.h >= map_height) {
 			body.bb.y = map_height - body.bb.h;
+			body.e = 1;
 		}
 
 		// Detect tile map collisions
@@ -413,6 +427,7 @@ function system_physics(dt) {
 			for (let x = ox; x <= tx; x++) {
 				const index = idx(x, y, map_width);
 				if (map_tiles[index] > 0) {
+					body.e = 1;
 					tile_bb.x = x;
 					tile_bb.y = y;
 					rect_intersection(body.bb, tile_bb, temp_rect);
@@ -475,7 +490,9 @@ function system_physics(dt) {
 			) {
 				body.c.push(neighbor_id);
 				neighbor_body.c.push(id);
-				pairs.push([id, neighbor_id]);
+				if (body.t !== 1 && neighbor_body.t !== 1) {
+					pairs.push([id, neighbor_id]);
+				}
 			}
 		}
 	}
@@ -507,6 +524,19 @@ function system_physics(dt) {
 		}
 		update_bounding_box(pos_a, body_a);
 		update_bounding_box(pos_b, body_b);
+	}
+}
+
+/** Bullet management system */
+function system_bullet() {
+	const bullets = components.bul;
+	if (bullets === undefined) { return; }
+
+	for (const [id, bullet] of bullets) {
+		const body = get_entity_component(id, "body");
+		if (body.e === 1 || body.c.length > 0) {
+			remove_entity(id);
+		}
 	}
 }
 
@@ -701,6 +731,7 @@ function main() {
 	systems.push(
 		system_input,
 		system_physics,
+		system_bullet,
 		system_camera,
 		system_render_map,
 		system_render_entities
