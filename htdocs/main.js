@@ -24,16 +24,31 @@ const SPATIAL_TILE_SIZE = 2;
 /** Key code which have their default behavior suppressed */
 const SUPPRESS_KEYS = [32, 37, 38, 39, 40, 65, 68, 83, 87];
 
+/** Entity groups */
+const GROUP_PLAYER = 1;
+const GROUP_ENEMY = 2;
+
+/** Collision groups (controls which groups collide with which other groups */
+const COLLISION_GROUPS = new Map([
+	[hash_ids(GROUP_PLAYER, GROUP_ENEMY), 1],
+	[hash_ids(GROUP_ENEMY, GROUP_ENEMY), 1]
+]);
+
 /** Prefabricated entities */
 const PREFABS = {
 	player: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.4, h: 0.4, vx: 0, vy: 0, b: 0 }
+		body: { w: 0.4, h: 0.4, vx: 0, vy: 0, b: 0, g: GROUP_PLAYER, c: [] }
 	},
 	dummy: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 1 },
+		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
 		sprite: { i: 1 }
+	},
+	bullet: {
+		pos: { x: 0, y: 0, f: 0 },
+		body: { w: 0.25, h: 0.25, vx: 0, vy: 0, b: 1, g: GROUP_PLAYER, c: [] },
+		sprite: { i: 2 }
 	}
 };
 
@@ -87,6 +102,11 @@ const spatial_tiles = [];
 const tile_bb = { x: 0, y: 0, w: 1, h: 1 };
 const temp_rect = { x: 0, y: 0, w: 0, h: 0 };
 
+/** Convert an X,Y coordinate into a grid index, given a grid width */
+function idx(x, y, w) {
+	return y * w + x;
+}
+
 /** Initialize the map to a new size */
 function init_map(width, height) {
 	map_width = width;
@@ -126,12 +146,14 @@ function key_down(...keys) {
 	return false;
 }
 
+/** Clear the spatial lookup map */
 function clear_spatial_map() {
 	for (const bucket of spatial_tiles) {
 		bucket.length = 0;
 	}
 }
 
+/** Insert a bounds into the spatial lookup map */
 function insert_spatial_bounds(id, bb) {
 	const ox = Math.floor(bb.x / SPATIAL_TILE_SIZE);
 	const oy = Math.floor(bb.y / SPATIAL_TILE_SIZE);
@@ -139,7 +161,7 @@ function insert_spatial_bounds(id, bb) {
 	const ty = Math.floor((bb.y + bb.h) / SPATIAL_TILE_SIZE);
 	for (let y = oy; y <= ty; y++) {
 		for (let x = ox; x <= tx; x++) {
-			const index = (y * spatial_width) + x;
+			const index = idx(x, y, spatial_width);
 			if (index < spatial_tiles.length) {
 				spatial_tiles[index].push(id);
 			}
@@ -147,6 +169,7 @@ function insert_spatial_bounds(id, bb) {
 	}
 }
 
+/** Get nearby bounds within the spatial lookup map */
 function get_spatial_neighbors(bb) {
 	const neighbors = [];
 	const ox = Math.floor(bb.x / SPATIAL_TILE_SIZE);
@@ -155,8 +178,10 @@ function get_spatial_neighbors(bb) {
 	const ty = Math.floor((bb.y + bb.h) / SPATIAL_TILE_SIZE);
 	for (let y = oy; y <= ty; y++) {
 		for (let x = ox; x <= tx; x++) {
-			const index = (y * spatial_width) + x;
-			neighbors.push(...spatial_tiles[index]);
+			const index = idx(x, y, spatial_width);
+			if (index < spatial_tiles.length) {
+				neighbors.push(...spatial_tiles[index]);
+			}
 		}
 	}
 	return neighbors;
@@ -202,10 +227,12 @@ function sign(n) {
 	return n > 0 ? 1 : n === 0 ? 0 : -1;
 }
 
+/** Hash two IDs into a unique number (order independent) */
 function hash_ids(a, b) {
-	return a < b ? (a * 100 + b) : (b * 100 + a);
+	return a < b ? idx(a, b, 100) : idx(b, a, 100);
 }
 
+/** Determine if two rectangles overlap */
 function rect_overlap(a, b) {
 	return (
 		a.x < b.x + b.w &&
@@ -322,8 +349,20 @@ function system_input(dt) {
 	} else if (key_down(39, 68)) {
 		pos.f += rot_distance;
 	}
+	if (key_down(32)) {
+		// Spawn a projectile
+		const hx = Math.cos(pos.f);
+		const hy = Math.sin(pos.f);
+		const px = pos.x + hx * 0.5;
+		const py = pos.y + hy * 0.5;
+		const id = spawn_prefab_entity("bullet", px, py, pos.f);
+		const body = get_entity_component(id, "body");
+		body.vx = hx * 5;
+		body.vy = hy * 5;
+	}
 }
 
+/** Update a body's bounding box based on its position */
 function update_bounding_box(pos, body) {
 	if (body.bb === undefined) {
 		body.bb = { x: 0, y: 0, w: 0, h: 0 };
@@ -342,6 +381,10 @@ function system_physics(dt) {
 	clear_spatial_map();
 
 	for (const [id, body] of bodies) {
+		// Clear contact list
+		body.c.length = 0;
+
+		// Update body's position
 		const pos = get_entity_component(id, "pos");
 		pos.x += body.vx * dt;
 		pos.y += body.vy * dt;
@@ -368,7 +411,7 @@ function system_physics(dt) {
 		const tiles = [];
 		for (let y = oy; y <= ty; y++) {
 			for (let x = ox; x <= tx; x++) {
-				const index = y * map_width + x;
+				const index = idx(x, y, map_width);
 				if (map_tiles[index] > 0) {
 					tile_bb.x = x;
 					tile_bb.y = y;
@@ -425,31 +468,38 @@ function system_physics(dt) {
 			if (checked.indexOf(hash) !== -1) { continue; }
 			checked.push(hash);
 			const neighbor_body = get_entity_component(neighbor_id, "body");
-			if (rect_overlap(body.bb, neighbor_body.bb)) {
-				pairs.push([id, neighbor_id, rect_intersection(body.bb, neighbor_body.bb)]);
+			const group_id = hash_ids(body.g, neighbor_body.g);
+			if (
+				COLLISION_GROUPS.has(group_id) &&
+				rect_overlap(body.bb, neighbor_body.bb)
+			) {
+				body.c.push(neighbor_id);
+				neighbor_body.c.push(id);
+				pairs.push([id, neighbor_id]);
 			}
 		}
 	}
 
 	// Resolve colliding pairs
-	for (const [a, b, intersection] of pairs) {
+	for (const [a, b] of pairs) {
 		// TODO: Allow for static vs dynamic collisions
 		const body_a = get_entity_component(a, "body");
 		const body_b = get_entity_component(b, "body");
 		const pos_a = get_entity_component(a, "pos");
 		const pos_b = get_entity_component(b, "pos");
-		if (intersection.w < intersection.h) {
+		rect_intersection(body_a.bb, body_b.bb, temp_rect);
+		if (temp_rect.w < temp_rect.h) {
 			// Separate along the X axis
-			const hw = intersection.w / 2;
-			const ix = intersection.x + hw;
+			const hw = temp_rect.w / 2;
+			const ix = temp_rect.x + hw;
 			pos_a.x += hw * sign(pos_a.x - ix);
 			pos_b.x += hw * sign(pos_b.x - ix);
 			body_a.vx *= -body_a.b;
 			body_b.vx *= -body_b.b;
 		} else {
 			// Separate along the Y axis
-			const hh = intersection.h / 2;
-			const iy = intersection.y + hh;
+			const hh = temp_rect.h / 2;
+			const iy = temp_rect.y + hh;
 			pos_a.y += hh * sign(pos_a.y - iy);
 			pos_b.y += hh * sign(pos_b.y - iy);
 			body_a.vy *= -body_a.b;
