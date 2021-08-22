@@ -16,7 +16,7 @@ const CAMERA_PLANE_LENGTH = 0.8;
 const PLAYER_MOVE_SPEED = 4;
 
 /** Player rotation speed, in radians per second */
-const PLAYER_ROT_SPEED = Math.PI * 1.2;
+const PLAYER_ROT_SPEED = Math.PI * 1;
 
 /** Size of spatial lookup tiles, in map tiles */
 const SPATIAL_TILE_SIZE = 2;
@@ -39,18 +39,36 @@ const COLLISION_GROUPS = new Map([
 const PREFABS = {
 	player: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.4, h: 0.4, vx: 0, vy: 0, b: 0, g: GROUP_PLAYER, c: [] }
+		body: { w: 0.4, h: 0.4, vx: 0, vy: 0, b: 0, g: GROUP_PLAYER, c: [] },
+		pla: { w: "pistol", c: 0 }
 	},
 	dummy: {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
+		mor: { h: 3 },
 		sprite: { i: 1 }
 	},
 	bullet: {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.25, h: 0.25, vx: 0, vy: 0, b: 0, t: 1, g: GROUP_PLAYER, c: [] },
-		bul: {},
+		bul: { d: 1 },
 		sprite: { i: 2 }
+	}
+};
+
+/**
+ * Weapon definitions
+ * p = Prefab to spawn
+ * d = Distance from spawner
+ * s = Projectile speed
+ * c = Spawner cooldown, in seconds
+ */
+const WEAPONS = {
+	pistol: {
+		p: "bullet",
+		d: 0.5,
+		s: 8,
+		c: 0.4
 	}
 };
 
@@ -341,7 +359,12 @@ function raycast(ox, oy, dx, dy) {
 
 /** User input system */
 function system_input(dt) {
+	const pla = get_entity_component(player_id, "pla");
 	const pos = get_entity_component(player_id, "pos");
+	// Decrease player attack cooldown
+	if (pla.c > 0) {
+		pla.c -= dt;
+	}
 	const facing_x = Math.cos(pos.f);
 	const facing_y = Math.sin(pos.f);
 	const move_distance = PLAYER_MOVE_SPEED * dt;
@@ -358,16 +381,19 @@ function system_input(dt) {
 	} else if (key_down(39, 68)) {
 		pos.f += rot_distance;
 	}
-	if (key_down(32)) {
+	if (key_down(32) && pla.c <= 0) {
+		const weapon = WEAPONS[pla.w];
+		// Set player attack cooldown
+		pla.c += weapon.c;
 		// Spawn a projectile
 		const hx = Math.cos(pos.f);
 		const hy = Math.sin(pos.f);
-		const px = pos.x + hx * 0.5;
-		const py = pos.y + hy * 0.5;
-		const id = spawn_prefab_entity("bullet", px, py, pos.f);
+		const px = pos.x + hx * weapon.d;
+		const py = pos.y + hy * weapon.d;
+		const id = spawn_prefab_entity(weapon.p, px, py, pos.f);
 		const body = get_entity_component(id, "body");
-		body.vx = hx * 5;
-		body.vy = hy * 5;
+		body.vx = hx * weapon.s;
+		body.vy = hy * weapon.s;
 	}
 }
 
@@ -534,7 +560,25 @@ function system_bullet() {
 
 	for (const [id, bullet] of bullets) {
 		const body = get_entity_component(id, "body");
+		if (body.c.length > 0) {
+			const contact_id = body.c[0];
+			const mortal = get_entity_component(contact_id, "mor");
+			if (mortal !== undefined) {
+				mortal.h -= bullet.d;
+			}
+		}
 		if (body.e === 1 || body.c.length > 0) {
+			remove_entity(id);
+		}
+	}
+}
+
+function system_mortal() {
+	const mortals = components.mor;
+	if (mortals === undefined) { return; }
+
+	for (const [id, mortal] of mortals) {
+		if (mortal.h <= 0) {
 			remove_entity(id);
 		}
 	}
@@ -732,6 +776,7 @@ function main() {
 		system_input,
 		system_physics,
 		system_bullet,
+		system_mortal,
 		system_camera,
 		system_render_map,
 		system_render_entities
