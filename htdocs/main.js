@@ -34,7 +34,6 @@ const COLLISION_GROUPS = new Map([
 	[hash_ids(GROUP_ENEMY, GROUP_ENEMY), 1]
 ]);
 
-
 /** Prefabricated entities */
 const PREFABS = {
 	player: {
@@ -71,6 +70,11 @@ const WEAPONS = {
 		c: 0.4
 	}
 };
+
+const MAP_GENERATORS = [
+	// (x, y, w, h) => 0,
+	(x, y, w, h) => (x % 4) === 0 && (y % 4) === 0,
+];
 
 /** Keyboard state */
 const keyboard = {};
@@ -127,6 +131,22 @@ function idx(x, y, w) {
 	return y * w + x;
 }
 
+/** A random integer between 0 and max (exclusive) */
+function random_int(max) {
+	return Math.floor(Math.random() * max);
+}
+
+/** Return a random thing from a group of things */
+function random_pick(things) {
+	const index = random_int(things.length);
+	return things[index];
+}
+
+/** Return the distance between two points */
+function distance(x1, y1, x2, y2) {
+	return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+}
+
 /** Initialize the map to a new size */
 function init_map(width, height) {
 	map_width = width;
@@ -137,6 +157,30 @@ function init_map(width, height) {
 	spatial_tiles.length = 0;
 	for (let i = 0; i < spatial_width * spatial_height; i++) {
 		spatial_tiles.push([]);
+	}
+}
+
+function generate_map(width, height) {
+	init_map(width, height);
+	const generator = random_pick(MAP_GENERATORS);
+	for (let i = 0; i < map_tiles.length; i++) {
+		const x = i % map_width;
+		const y = Math.floor(i / map_width);
+		map_tiles[i] = generator(x, y, width, height) ? 1 : 0;
+
+		// OLD GENERATION
+		// if (x === 0 || x === map_width - 1 || y === 0 || y === map_height - 1) {
+		// 	map_tiles[i] = 1;
+		// } else {
+		// 	map_tiles[i] = Math.random() > 0.1 ? 0 : 1;
+		// 	if (map_tiles[i] === 0 && Math.random() < 0.05) {
+		// 		const angle = Math.random() * Math.PI * 2;
+		// 		const id = spawn_prefab_entity("dummy", x + 0.5, y + 0.5, 0);
+		// 		const body = get_entity_component(id, "body");
+		// 		body.vx = Math.cos(angle) * 0.75;
+		// 		body.vy = Math.sin(angle) * 0.75;
+		// 	}
+		// }
 	}
 }
 
@@ -339,6 +383,7 @@ function raycast(ox, oy, dx, dy) {
 			}
 		} else {
 			// We hit an invalid cell
+			result.v = 1;
 			break;
 		}
 	}
@@ -662,16 +707,17 @@ function system_render_entities() {
 	// Determine each entity's distance from the camera
 	let order_index = 0;
 	const order = new Array(sprites.size);
-	const distance = {};
+	const dist = {};
 	for (const [id] of sprites) {
 		order[order_index++] = id;
 		const pos = get_entity_component(id, "pos");
-		distance[id] = ((camera_x - pos.x) * (camera_x - pos.x) + (camera_y - pos.y) * (camera_y - pos.y));
+		// ((camera_x - pos.x) * (camera_x - pos.x) + (camera_y - pos.y) * (camera_y - pos.y));
+		dist[id] = distance(pos.x, pos.y, camera_x, camera_y);
 	}
 
 	// Sort entities by their distance from the camera
 	order.sort(function (a, b) {
-		return distance[b] - distance[a];
+		return dist[b] - dist[a];
 	});
 
 	// Draw each sprite
@@ -783,23 +829,7 @@ function main() {
 	);
 
 	// Init map
-	init_map(20, 20);
-	for (let i = 0; i < map_tiles.length; i++) {
-		const x = i % map_width;
-		const y = Math.floor(i / map_width);
-		if (x === 0 || x === map_width - 1 || y === 0 || y === map_height - 1) {
-			map_tiles[i] = 1;
-		} else {
-			map_tiles[i] = Math.random() > 0.1 ? 0 : 1;
-			if (map_tiles[i] === 0 && Math.random() < 0.05) {
-				const angle = Math.random() * Math.PI * 2;
-				const id = spawn_prefab_entity("dummy", x + 0.5, y + 0.5, 0);
-				const body = get_entity_component(id, "body");
-				body.vx = Math.cos(angle) * 0.75;
-				body.vy = Math.sin(angle) * 0.75;
-			}
-		}
-	}
+	generate_map(20, 20);
 
 	// Init player
 	player_id = spawn_prefab_entity("player", 1.5, 1.5, 0);
