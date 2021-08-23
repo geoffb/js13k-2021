@@ -1,5 +1,7 @@
 "use strict";
 
+const TAU = Math.PI * 2;
+
 /** Size of textures, in pixels */
 const TEXTURE_SIZE = 8;
 
@@ -49,7 +51,7 @@ const PREFABS = {
 	},
 	slime: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
+		body: { w: 0.8, h: 0.8, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
 		mor: { h: 3 },
 		sprite: { i: 6 },
 		anim: { f: [6, 7], i: 0, d: 0.25, e: 0 },
@@ -85,9 +87,8 @@ const WEAPONS = {
 };
 
 const MAP_GENERATORS = [
-	// (x, y, w, h) => 0,
 	(x, y, w, h) => (x % 4) === 0 && (y % 4) === 0,
-	(x, y, w, h) => (y % 4) !== 0 && ((x > 2 && x < w / 2 - 3) || (x < w - 3 && x > w / 2 + 3)),
+	// (x, y, w, h) => (y % 4) !== 0 && ((x > 2 && x < w / 2 - 3) || (x < w - 3 && x > w / 2 + 3)),
 ];
 
 /** Keyboard state */
@@ -99,6 +100,7 @@ let last_frame = 0;
 /** Canvas 2D drawing surface */
 let canvas;
 let ctx;
+let bg_buffer;
 
 /** Depth buffer */
 let depth_buffer;
@@ -159,6 +161,10 @@ function random_pick(things) {
 /** Return the distance between two points */
 function distance(x1, y1, x2, y2) {
 	return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+}
+
+function map_number(x, in_min, in_max, out_min, out_max) {
+	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
 /** Initialize the map to a new size */
@@ -681,13 +687,25 @@ function system_ttl(dt) {
 function system_render_map() {
 	const half_height = CAMERA_HEIGHT / 2;
 
-	// Draw ceiling/sky
-	ctx.fillStyle = "#27badb";
-	ctx.fillRect(0, 0, CAMERA_WIDTH, half_height);
+	const pos = get_entity_component(player_id, "pos");
+	const angle = ((pos.f % TAU) + TAU) % TAU;
+	const offset = Math.floor(map_number(angle, 0, TAU, 0, 1) * bg_buffer.width);
 
-	// Draw floor
-	ctx.fillStyle = "#707070";
-	ctx.fillRect(0, half_height, CAMERA_WIDTH, half_height);
+	ctx.fillStyle = "#F0F";
+	ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+	if (offset === 0) {
+		ctx.drawImage(bg_buffer, 0, 0);
+	} else {
+		// Left half
+		ctx.drawImage(bg_buffer,
+			offset, 0, bg_buffer.width - offset, bg_buffer.height,
+			0, 0, bg_buffer.width - offset, bg_buffer.height);
+		// Right half
+		ctx.drawImage(bg_buffer,
+			0, 0, offset, bg_buffer.height,
+			bg_buffer.width - offset, 0, offset, bg_buffer.height);
+	}
 
 	for (let x = 0; x < CAMERA_WIDTH; x++) {
 		const cam_x = 2 * x / CAMERA_WIDTH - 1; // x coordinate in camera space
@@ -858,6 +876,22 @@ function main() {
 	window.onresize = scale_canvas;
 	ctx = canvas.getContext("2d");
 	ctx.imageSmoothingEnabled = false;
+
+	bg_buffer = document.createElement("canvas");
+	bg_buffer.width = canvas.width;
+	bg_buffer.height = canvas.height;
+	const bg_ctx = bg_buffer.getContext("2d");
+	const half_height = bg_buffer.height / 2;
+	bg_ctx.fillStyle = "#000000";
+	bg_ctx.fillRect(0, 0, CAMERA_WIDTH, half_height);
+	bg_ctx.fillStyle = "#707070";
+	bg_ctx.fillRect(0, half_height, CAMERA_WIDTH, half_height);
+	bg_ctx.fillStyle = "#FFFFFF";
+	const colors = ["#202040", "#340058", "#4c0000", "#9600dc", "#861650", "#006ab4"];
+	for (let i = 0; i < 500; i++) {
+		bg_ctx.fillStyle = random_pick(colors);
+		bg_ctx.fillRect(random_int(bg_buffer.width), random_int(half_height), 2, 2);
+	}
 
 	// Init systems
 	systems.push(
