@@ -831,8 +831,10 @@ function frame(time) {
 	last_frame = time;
 
 	// Execute systems
-	for (const sys of systems) {
-		sys(dt);
+	if (dt < 0.2) {
+		for (const sys of systems) {
+			sys(dt);
+		}
 	}
 
 	requestAnimationFrame(frame);
