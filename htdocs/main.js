@@ -47,11 +47,24 @@ const PREFABS = {
 		mor: { h: 3 },
 		sprite: { i: 1 }
 	},
+	slime: {
+		pos: { x: 0, y: 0, f: 0 },
+		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
+		mor: { h: 3 },
+		sprite: { i: 6 },
+		anim: { f: [6, 7], i: 0, d: 0.25, e: 0 },
+	},
 	bullet: {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.25, h: 0.25, vx: 0, vy: 0, b: 0, t: 1, g: GROUP_PLAYER, c: [] },
 		bul: { d: 1 },
 		sprite: { i: 2 }
+	},
+	boom: {
+		pos: { x: 0, y: 0, f: 0 },
+		sprite: { i: 3 },
+		anim: { f: [3, 4, 5], i: 0, d: 0.125, e: 0 },
+		ttl: { d: 0.375 }
 	}
 };
 
@@ -74,6 +87,7 @@ const WEAPONS = {
 const MAP_GENERATORS = [
 	// (x, y, w, h) => 0,
 	(x, y, w, h) => (x % 4) === 0 && (y % 4) === 0,
+	(x, y, w, h) => (y % 4) !== 0 && ((x > 2 && x < w / 2 - 3) || (x < w - 3 && x > w / 2 + 3)),
 ];
 
 /** Keyboard state */
@@ -167,20 +181,14 @@ function generate_map(width, height) {
 		const x = i % map_width;
 		const y = Math.floor(i / map_width);
 		map_tiles[i] = generator(x, y, width, height) ? 1 : 0;
-
-		// OLD GENERATION
-		// if (x === 0 || x === map_width - 1 || y === 0 || y === map_height - 1) {
-		// 	map_tiles[i] = 1;
-		// } else {
-		// 	map_tiles[i] = Math.random() > 0.1 ? 0 : 1;
-		// 	if (map_tiles[i] === 0 && Math.random() < 0.05) {
-		// 		const angle = Math.random() * Math.PI * 2;
-		// 		const id = spawn_prefab_entity("dummy", x + 0.5, y + 0.5, 0);
-		// 		const body = get_entity_component(id, "body");
-		// 		body.vx = Math.cos(angle) * 0.75;
-		// 		body.vy = Math.sin(angle) * 0.75;
-		// 	}
-		// }
+		if (map_tiles[i] === 0 && Math.random() < 0.1) {
+			const angle = Math.random() * Math.PI * 2;
+			const prefab = random_pick(["dummy", "slime"]);
+			const id = spawn_prefab_entity(prefab, x + 0.5, y + 0.5, 0);
+			const body = get_entity_component(id, "body");
+			body.vx = Math.cos(angle) * 0.75;
+			body.vy = Math.sin(angle) * 0.75;
+		}
 	}
 }
 
@@ -475,16 +483,20 @@ function system_physics(dt) {
 		// Constrain physical bodies to the map
 		if (body.bb.x < 0) {
 			body.bb.x = 0;
+			body.vx *= -body.b;
 			body.e = 1;
 		} else if (body.bb.x + body.bb.w >= map_width) {
 			body.bb.x = map_width - body.bb.w;
+			body.vx *= -body.b;
 			body.e = 1;
 		}
 		if (body.bb.y < 0) {
 			body.bb.y = 0;
+			body.vy *= -body.b;
 			body.e = 1;
 		} else if (body.bb.y + body.bb.h >= map_height) {
 			body.bb.y = map_height - body.bb.h;
+			body.vy *= -body.b;
 			body.e = 1;
 		}
 
@@ -624,6 +636,8 @@ function system_mortal() {
 
 	for (const [id, mortal] of mortals) {
 		if (mortal.h <= 0) {
+			const pos = get_entity_component(id, "pos");
+			spawn_prefab_entity("boom", pos.x, pos.y, 0);
 			remove_entity(id);
 		}
 	}
@@ -633,6 +647,34 @@ function system_mortal() {
 function system_camera() {
 	const pos = get_entity_component(player_id, "pos");
 	set_camera(pos.x, pos.y, Math.cos(pos.f), Math.sin(pos.f));
+}
+
+function system_animation(dt) {
+	const anims = components.anim;
+	if (anims === undefined) { return; }
+
+	for (const [id, anim] of anims) {
+		anim.e += dt;
+		if (anim.e >= anim.d) {
+			anim.e -= anim.d;
+			if (++anim.i >= anim.f.length) {
+				anim.i = 0;
+			}
+			const sprite = get_entity_component(id, "sprite");
+			sprite.i = anim.f[anim.i];
+		}
+	}
+}
+
+function system_ttl(dt) {
+	const doomed = components.ttl;
+	if (doomed === undefined) { return; }
+	for (const [id, doom] of doomed) {
+		doom.d -= dt;
+		if (doom.d <= 0) {
+			remove_entity(id);
+		}
+	}
 }
 
 /** Render the map/world to the canvas */
@@ -823,13 +865,15 @@ function main() {
 		system_physics,
 		system_bullet,
 		system_mortal,
+		system_ttl,
 		system_camera,
 		system_render_map,
+		system_animation,
 		system_render_entities
 	);
 
 	// Init map
-	generate_map(20, 20);
+	generate_map(21, 21);
 
 	// Init player
 	player_id = spawn_prefab_entity("player", 1.5, 1.5, 0);
