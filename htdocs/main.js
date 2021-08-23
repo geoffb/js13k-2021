@@ -24,7 +24,7 @@ const PLAYER_ROT_SPEED = Math.PI * 1;
 const SPATIAL_TILE_SIZE = 2;
 
 /** Key code which have their default behavior suppressed */
-const SUPPRESS_KEYS = [32, 37, 38, 39, 40, 65, 68, 83, 87];
+const SUPPRESS_KEYS = [13, 32, 37, 38, 39, 40, 65, 68, 83, 87];
 
 /** Entity groups */
 const GROUP_PLAYER = 1;
@@ -440,7 +440,7 @@ function system_input(dt) {
 	} else if (key_down(39, 68)) {
 		pos.f += rot_distance;
 	}
-	if (key_down(32) && pla.c <= 0) {
+	if (key_down(13, 32) && pla.c <= 0) {
 		const weapon = WEAPONS[pla.w];
 		// Set player attack cooldown
 		pla.c += weapon.c;
