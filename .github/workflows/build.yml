@@ -25,5 +25,14 @@ jobs:
       - name: 🧼 Clean build artifacts
         run: yarn clean
 
-      - name: 🏗️ Build packages
+      - name: 🏗️ Build
         run: yarn build
+
+      - name: 📦️ Publish (itch.io)
+        uses: josephbmanley/butler-publish-itchio-action@master
+        env:
+          BUTLER_CREDENTIALS: ${{ secrets.BUTLER_CREDENTIALS }}
+          CHANNEL: web
+          ITCH_GAME: js13k-2021
+          ITCH_USER: gosub
+          PACKAGE: dist/js13k-2021.zip
