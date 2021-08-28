@@ -1,0 +1,29 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  Build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🛎️ Checkout
+        uses: actions/checkout@v2
+
+      - name: 🔧 Install dependencies
+        run: yarn
+
+      - name: 📒 Audit dependencies
+        run: yarn audit
+
+      - name: 👕 Lint source files
+        run: yarn lint
+
+      - name: 🧼 Clean build artifacts
+        run: yarn clean
+
+      - name: 🏗️ Build packages
+        run: yarn build
