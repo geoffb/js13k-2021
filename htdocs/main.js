@@ -131,7 +131,7 @@ const WEAPONS = {
 };
 
 const MAP_GENERATORS = [
-	(x, y, w, h) => (x % 4) === 0 && (y % 4) === 0,
+	(x, y) => (x % 4) === 0 && (y % 4) === 0,
 ];
 
 /** Keyboard state */
