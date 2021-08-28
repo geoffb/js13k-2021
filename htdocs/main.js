@@ -15,10 +15,10 @@ const CAMERA_HEIGHT = Math.floor(CAMERA_WIDTH / 2);
 const CAMERA_PLANE_LENGTH = 0.8;
 
 /** Player move speed, in tiles per second */
-const PLAYER_MOVE_SPEED = 4;
+const PLAYER_MOVE_SPEED = 6;
 
 /** Player rotation speed, in radians per second */
-const PLAYER_ROT_SPEED = Math.PI * 1;
+const PLAYER_ROT_SPEED = Math.PI * 0.75;
 
 /** Size of spatial lookup tiles, in map tiles */
 const SPATIAL_TILE_SIZE = 2;
@@ -36,12 +36,55 @@ const COLLISION_GROUPS = new Map([
 	[hash_ids(GROUP_ENEMY, GROUP_ENEMY), 1]
 ]);
 
+/*
+COMPONENTS:
+
+pos (Position)
+	x: X coordinate (units)
+	y: Y coordinate (units)
+
+body (Physics body)
+	w: 	Width (units)
+	h: 	Height (units)
+	vx: Velocity X (units/s)
+	vy: Velocity Y (units/s)
+	b: 	Bounce (0 - 1)
+	g: 	Collision group
+	t:  Trigger (0 = no, 1 = yes)
+	c:  Contacting entity IDs
+
+ttl (Time-to-live)
+	d: Duration (seconds)
+
+mor (Mortal)
+	h: Hit points
+
+haz (Hazard)
+	d: Damage
+	o: One shot (0 = no, 1 = yes)
+
+pla (Player)
+	w: Weapon
+	c: Weapon cooldown
+
+sprite (Sprite)
+	i: Sprite sheet index
+
+anim (Animation)
+	f: Frame indices
+	i: Current frame index
+	d: Frame delay (seconds)
+	e: Frame elapsed (seconds)
+
+*/
+
 /** Prefabricated entities */
 const PREFABS = {
 	player: {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.4, h: 0.4, vx: 0, vy: 0, b: 0, g: GROUP_PLAYER, c: [] },
-		pla: { w: "pistol", c: 0 }
+		pla: { w: "pistol", c: 0 },
+		// mor: { h: 3 }
 	},
 	dummy: {
 		pos: { x: 0, y: 0, f: 0 },
@@ -52,21 +95,22 @@ const PREFABS = {
 	slime: {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.8, h: 0.8, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
-		mor: { h: 3 },
+		haz: { d: 1 },
+		mor: { h: 6 },
 		sprite: { i: 6 },
 		anim: { f: [6, 7], i: 0, d: 0.25, e: 0 },
 	},
 	bullet: {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.25, h: 0.25, vx: 0, vy: 0, b: 0, t: 1, g: GROUP_PLAYER, c: [] },
-		bul: { d: 1 },
+		haz: { d: 1, o: 1 },
 		sprite: { i: 2 }
 	},
 	boom: {
 		pos: { x: 0, y: 0, f: 0 },
 		sprite: { i: 3 },
-		anim: { f: [3, 4, 5], i: 0, d: 0.125, e: 0 },
-		ttl: { d: 0.375 }
+		anim: { f: [3, 4, 5], i: 0, d: 0.1, e: 0 },
+		ttl: { d: 0.3 }
 	}
 };
 
@@ -81,14 +125,13 @@ const WEAPONS = {
 	pistol: {
 		p: "bullet",
 		d: 0.5,
-		s: 8,
+		s: 12,
 		c: 0.4
 	}
 };
 
 const MAP_GENERATORS = [
 	(x, y, w, h) => (x % 4) === 0 && (y % 4) === 0,
-	// (x, y, w, h) => (y % 4) !== 0 && ((x > 2 && x < w / 2 - 3) || (x < w - 3 && x > w / 2 + 3)),
 ];
 
 /** Keyboard state */
@@ -616,21 +659,23 @@ function system_physics(dt) {
 	}
 }
 
-/** Bullet management system */
-function system_bullet() {
-	const bullets = components.bul;
-	if (bullets === undefined) { return; }
+/** Hazard management system */
+function system_hazard() {
+	const hazards = components.haz;
+	if (hazards === undefined) { return; }
 
-	for (const [id, bullet] of bullets) {
+	for (const [id, hazard] of hazards) {
 		const body = get_entity_component(id, "body");
 		if (body.c.length > 0) {
 			const contact_id = body.c[0];
 			const mortal = get_entity_component(contact_id, "mor");
 			if (mortal !== undefined) {
-				mortal.h -= bullet.d;
+				mortal.h -= hazard.d;
 			}
 		}
-		if (body.e === 1 || body.c.length > 0) {
+
+		// Remove hazard if it's a "one shot"
+		if (hazard.o === 1 && (body.e === 1 || body.c.length > 0)) {
 			remove_entity(id);
 		}
 	}
@@ -899,7 +944,7 @@ function main() {
 	systems.push(
 		system_input,
 		system_physics,
-		system_bullet,
+		system_hazard,
 		system_mortal,
 		system_ttl,
 		system_camera,
