@@ -33,7 +33,7 @@ const GROUP_ENEMY = 2;
 /** Collision groups (controls which groups collide with which other groups */
 const COLLISION_GROUPS = new Map([
 	[hash_ids(GROUP_PLAYER, GROUP_ENEMY), 1],
-	[hash_ids(GROUP_ENEMY, GROUP_ENEMY), 1]
+	[hash_ids(GROUP_ENEMY, GROUP_ENEMY), 1],
 ]);
 
 /*
@@ -90,7 +90,7 @@ const PREFABS = {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
 		mor: { h: 3 },
-		sprite: { i: 1 }
+		sprite: { i: 1 },
 	},
 	slime: {
 		pos: { x: 0, y: 0, f: 0 },
@@ -102,16 +102,25 @@ const PREFABS = {
 	},
 	bullet: {
 		pos: { x: 0, y: 0, f: 0 },
-		body: { w: 0.25, h: 0.25, vx: 0, vy: 0, b: 0, t: 1, g: GROUP_PLAYER, c: [] },
+		body: {
+			w: 0.25,
+			h: 0.25,
+			vx: 0,
+			vy: 0,
+			b: 0,
+			t: 1,
+			g: GROUP_PLAYER,
+			c: [],
+		},
 		haz: { d: 1, o: 1 },
-		sprite: { i: 2 }
+		sprite: { i: 2 },
 	},
 	boom: {
 		pos: { x: 0, y: 0, f: 0 },
 		sprite: { i: 3 },
 		anim: { f: [3, 4, 5], i: 0, d: 0.1, e: 0 },
-		ttl: { d: 0.3 }
-	}
+		ttl: { d: 0.3 },
+	},
 };
 
 /**
@@ -126,13 +135,11 @@ const WEAPONS = {
 		p: "bullet",
 		d: 0.5,
 		s: 12,
-		c: 0.4
-	}
+		c: 0.4,
+	},
 };
 
-const MAP_GENERATORS = [
-	(x, y) => (x % 4) === 0 && (y % 4) === 0,
-];
+const MAP_GENERATORS = [(x, y) => x % 4 === 0 && y % 4 === 0];
 
 /** Keyboard state */
 const keyboard = {};
@@ -207,7 +214,7 @@ function distance(x1, y1, x2, y2) {
 }
 
 function map_number(x, in_min, in_max, out_min, out_max) {
-	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+	return ((x - in_min) * (out_max - out_min)) / (in_max - in_min) + out_min;
 }
 
 /** Initialize the map to a new size */
@@ -262,7 +269,9 @@ function handle_key(e, state) {
 /** Check whether any given keys are down */
 function key_down(...keys) {
 	for (const key of keys) {
-		if (keyboard[key]) { return true; }
+		if (keyboard[key]) {
+			return true;
+		}
 	}
 	return false;
 }
@@ -360,19 +369,29 @@ function hash_ids(a, b) {
 	return a < b ? idx(a, b, 100) : idx(b, a, 100);
 }
 
+/** Update a body's bounding box based on its position */
+function update_bounding_box(pos, body) {
+	if (body.bb === undefined) {
+		body.bb = { x: 0, y: 0, w: 0, h: 0 };
+	}
+	body.bb.x = pos.x - body.w / 2;
+	body.bb.y = pos.y - body.h / 2;
+	body.bb.w = body.w;
+	body.bb.h = body.h;
+}
+
 /** Determine if two rectangles overlap */
 function rect_overlap(a, b) {
 	return (
-		a.x < b.x + b.w &&
-		a.x + a.w > b.x &&
-		a.y < b.y + b.h &&
-		a.y + a.h > b.y
+		a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 	);
 }
 
 /** Calculate the intersection rectangle of overlapping rectangles */
 function rect_intersection(a, b, out) {
-	if (out === undefined) { out = {}; }
+	if (out === undefined) {
+		out = {};
+	}
 	const x1 = Math.min(a.x + a.w, b.x + b.w);
 	const x2 = Math.max(a.x, b.x);
 	const y1 = Math.min(a.y + a.h, b.y + b.h);
@@ -431,7 +450,7 @@ function raycast(ox, oy, dx, dy) {
 		}
 
 		if (x >= 0 && x < map_width && y >= 0 && y < map_height) {
-			const i = (y * map_width) + x;
+			const i = y * map_width + x;
 			const value = map_tiles[i];
 			if (value !== 0) {
 				// Hit a wall
@@ -499,21 +518,12 @@ function system_input(dt) {
 	}
 }
 
-/** Update a body's bounding box based on its position */
-function update_bounding_box(pos, body) {
-	if (body.bb === undefined) {
-		body.bb = { x: 0, y: 0, w: 0, h: 0 };
-	}
-	body.bb.x = pos.x - body.w / 2;
-	body.bb.y = pos.y - body.h / 2;
-	body.bb.w = body.w;
-	body.bb.h = body.h;
-}
-
 /** Physics system */
 function system_physics(dt) {
 	const bodies = components.body;
-	if (bodies === undefined) { return; }
+	if (bodies === undefined) {
+		return;
+	}
 
 	clear_spatial_map();
 
@@ -566,7 +576,7 @@ function system_physics(dt) {
 					tiles.push({
 						x: tile_bb.x,
 						y: tile_bb.y,
-						a: temp_rect.w * temp_rect.h
+						a: temp_rect.w * temp_rect.h,
 					});
 				}
 			}
@@ -585,11 +595,15 @@ function system_physics(dt) {
 				rect_intersection(body.bb, tile_bb, temp_rect);
 				if (temp_rect.w * temp_rect.h > 0) {
 					if (temp_rect.w < temp_rect.h) {
-						const sx = sign((body.bb.x + body.bb.w / 2) - (temp_rect.x + temp_rect.w / 2));
+						const sx = sign(
+							body.bb.x + body.bb.w / 2 - (temp_rect.x + temp_rect.w / 2)
+						);
 						body.bb.x += temp_rect.w * sx;
 						body.vx *= -body.b;
 					} else {
-						const sy = sign((body.bb.y + body.bb.h / 2) - (temp_rect.y + temp_rect.h / 2));
+						const sy = sign(
+							body.bb.y + body.bb.h / 2 - (temp_rect.y + temp_rect.h / 2)
+						);
 						body.bb.y += temp_rect.h * sy;
 						body.vy *= -body.b;
 					}
@@ -610,9 +624,13 @@ function system_physics(dt) {
 	for (const [id, body] of bodies) {
 		const neighbors = get_spatial_neighbors(body.bb);
 		for (const neighbor_id of neighbors) {
-			if (neighbor_id === id) { continue; }
+			if (neighbor_id === id) {
+				continue;
+			}
 			const hash = hash_ids(id, neighbor_id);
-			if (checked.indexOf(hash) !== -1) { continue; }
+			if (checked.indexOf(hash) !== -1) {
+				continue;
+			}
 			checked.push(hash);
 			const neighbor_body = get_entity_component(neighbor_id, "body");
 			const group_id = hash_ids(body.g, neighbor_body.g);
@@ -662,7 +680,9 @@ function system_physics(dt) {
 /** Hazard management system */
 function system_hazard() {
 	const hazards = components.haz;
-	if (hazards === undefined) { return; }
+	if (hazards === undefined) {
+		return;
+	}
 
 	for (const [id, hazard] of hazards) {
 		const body = get_entity_component(id, "body");
@@ -681,9 +701,12 @@ function system_hazard() {
 	}
 }
 
+/** Mortality system */
 function system_mortal() {
 	const mortals = components.mor;
-	if (mortals === undefined) { return; }
+	if (mortals === undefined) {
+		return;
+	}
 
 	for (const [id, mortal] of mortals) {
 		if (mortal.h <= 0) {
@@ -700,9 +723,12 @@ function system_camera() {
 	set_camera(pos.x, pos.y, Math.cos(pos.f), Math.sin(pos.f));
 }
 
+/** Animation system */
 function system_animation(dt) {
 	const anims = components.anim;
-	if (anims === undefined) { return; }
+	if (anims === undefined) {
+		return;
+	}
 
 	for (const [id, anim] of anims) {
 		anim.e += dt;
@@ -717,9 +743,12 @@ function system_animation(dt) {
 	}
 }
 
+/** Time-to-live system */
 function system_ttl(dt) {
 	const doomed = components.ttl;
-	if (doomed === undefined) { return; }
+	if (doomed === undefined) {
+		return;
+	}
 	for (const [id, doom] of doomed) {
 		doom.d -= dt;
 		if (doom.d <= 0) {
@@ -743,17 +772,33 @@ function system_render_map() {
 		ctx.drawImage(bg_buffer, 0, 0);
 	} else {
 		// Left half
-		ctx.drawImage(bg_buffer,
-			offset, 0, bg_buffer.width - offset, bg_buffer.height,
-			0, 0, bg_buffer.width - offset, bg_buffer.height);
+		ctx.drawImage(
+			bg_buffer,
+			offset,
+			0,
+			bg_buffer.width - offset,
+			bg_buffer.height,
+			0,
+			0,
+			bg_buffer.width - offset,
+			bg_buffer.height
+		);
 		// Right half
-		ctx.drawImage(bg_buffer,
-			0, 0, offset, bg_buffer.height,
-			bg_buffer.width - offset, 0, offset, bg_buffer.height);
+		ctx.drawImage(
+			bg_buffer,
+			0,
+			0,
+			offset,
+			bg_buffer.height,
+			bg_buffer.width - offset,
+			0,
+			offset,
+			bg_buffer.height
+		);
 	}
 
 	for (let x = 0; x < CAMERA_WIDTH; x++) {
-		const cam_x = 2 * x / CAMERA_WIDTH - 1; // x coordinate in camera space
+		const cam_x = (2 * x) / CAMERA_WIDTH - 1; // x coordinate in camera space
 
 		const ray_x = camera_facing_x + camera_plane_x * cam_x;
 		const ray_y = camera_facing_y + camera_plane_y * cam_x;
@@ -777,17 +822,24 @@ function system_render_map() {
 			// x coordinate on the texture
 			let texture_x = Math.floor(wall_x * TEXTURE_SIZE);
 			// flip texture x coordinate
-			if (
-				(ray.s === 0 && ray_x < 0) ||
-				(ray.s === 1 && ray_y > 0)
-			) {
+			if ((ray.s === 0 && ray_x < 0) || (ray.s === 1 && ray_y > 0)) {
 				texture_x = TEXTURE_SIZE - texture_x - 1;
 			}
 
 			// offset texture coordinate within texture
 			texture_x += (ray.v - 1) * TEXTURE_SIZE;
 
-			ctx.drawImage(textures, texture_x, 0, 1, TEXTURE_SIZE, x, draw_start, 1, draw_end - draw_start);
+			ctx.drawImage(
+				textures,
+				texture_x,
+				0,
+				1,
+				TEXTURE_SIZE,
+				x,
+				draw_start,
+				1,
+				draw_end - draw_start
+			);
 
 			// Shading
 			if (ray.s === 1) {
@@ -807,7 +859,9 @@ function system_render_map() {
 function system_render_entities() {
 	// Get all sprite components
 	const sprites = components["sprite"];
-	if (sprites === undefined) { return; }
+	if (sprites === undefined) {
+		return;
+	}
 
 	// Determine each entity's distance from the camera
 	let order_index = 0;
@@ -833,7 +887,9 @@ function system_render_entities() {
 		const ey = pos.y - camera_y;
 
 		// Required for correct matrix multiplication
-		var inv_det = 1.0 / (camera_plane_x * camera_facing_y - camera_facing_x * camera_plane_y);
+		var inv_det =
+			1.0 /
+			(camera_plane_x * camera_facing_y - camera_facing_x * camera_plane_y);
 
 		var tx = inv_det * (camera_facing_y * ex - camera_facing_x * ey);
 		var ty = inv_det * (-camera_plane_y * ex + camera_plane_x * ey);
@@ -841,29 +897,43 @@ function system_render_entities() {
 		var sx = Math.round((CAMERA_WIDTH / 2) * (1 + tx / ty));
 
 		// Calculate sprite draw height
-		const sprite_height = Math.abs(Math.round(CAMERA_HEIGHT / (ty)));
+		const sprite_height = Math.abs(Math.round(CAMERA_HEIGHT / ty));
 		const draw_start_y = -sprite_height / 2 + CAMERA_HEIGHT / 2;
 		const draw_end_y = sprite_height / 2 + CAMERA_HEIGHT / 2;
 
 		// Bail out if sprite is not visible
-		if (draw_start_y > CAMERA_HEIGHT || draw_end_y < 0) { continue; }
+		if (draw_start_y > CAMERA_HEIGHT || draw_end_y < 0) {
+			continue;
+		}
 
 		// Calculate sprite draw width
-		const sprite_width = Math.abs(Math.round(CAMERA_HEIGHT / (ty)));
+		const sprite_width = Math.abs(Math.round(CAMERA_HEIGHT / ty));
 		const draw_start_x = Math.round(-sprite_width / 2 + sx);
 		const draw_end_x = Math.round(sprite_width / 2 + sx);
 
 		// Bail out if sprite is not visible
-		if (draw_start_x > CAMERA_WIDTH || draw_end_x < 0) { continue; }
+		if (draw_start_x > CAMERA_WIDTH || draw_end_x < 0) {
+			continue;
+		}
 
 		// Draw sprite in vertical stripes
 		for (let x = draw_start_x; x < draw_end_x; ++x) {
 			if (ty > 0 && x > 0 && x < CAMERA_WIDTH && ty < depth_buffer[x]) {
-				let texture_x = Math.floor((x - (-sprite_width / 2 + sx)) * TEXTURE_SIZE / sprite_width);
+				let texture_x = Math.floor(
+					((x - (-sprite_width / 2 + sx)) * TEXTURE_SIZE) / sprite_width
+				);
 				texture_x += sprites.get(id).i * TEXTURE_SIZE;
-				ctx.drawImage(textures,
-					texture_x, 0, 1, TEXTURE_SIZE,
-					x, ~~draw_start_y, 1, ~~(draw_end_y - draw_start_y));
+				ctx.drawImage(
+					textures,
+					texture_x,
+					0,
+					1,
+					TEXTURE_SIZE,
+					x,
+					~~draw_start_y,
+					1,
+					~~(draw_end_y - draw_start_y)
+				);
 			}
 		}
 	}
@@ -895,8 +965,8 @@ function scale_canvas() {
 	const scale = Math.min(width / canvas.width, height / canvas.height);
 
 	// Calculate centered position for scaled canvas
-	const left = width / 2 - (canvas.width / 2 * scale);
-	const top = height / 2 - (canvas.height / 2 * scale);
+	const left = width / 2 - (canvas.width / 2) * scale;
+	const top = height / 2 - (canvas.height / 2) * scale;
 
 	// Apply styles
 	canvas.style.width = `${canvas.width * scale}px`;
@@ -934,7 +1004,14 @@ function main() {
 	bg_ctx.fillStyle = "#707070";
 	bg_ctx.fillRect(0, half_height, CAMERA_WIDTH, half_height);
 	bg_ctx.fillStyle = "#FFFFFF";
-	const colors = ["#202040", "#340058", "#4c0000", "#9600dc", "#861650", "#006ab4"];
+	const colors = [
+		"#202040",
+		"#340058",
+		"#4c0000",
+		"#9600dc",
+		"#861650",
+		"#006ab4",
+	];
 	for (let i = 0; i < 500; i++) {
 		bg_ctx.fillStyle = random_pick(colors);
 		bg_ctx.fillRect(random_int(bg_buffer.width), random_int(half_height), 2, 2);
