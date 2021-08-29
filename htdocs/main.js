@@ -1,5 +1,11 @@
 "use strict";
 
+const STRING_TITLE_PRE = "Escape from";
+const STRING_TITLE = "Ganymede";
+const STRING_START = "Press SPACE to start";
+const STRING_GAME_OVER = "Game Over";
+const STRING_RESTART = "Press SPACE to restart";
+
 const TAU = Math.PI * 2;
 
 /** Size of textures, in pixels */
@@ -84,7 +90,7 @@ const PREFABS = {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.4, h: 0.4, vx: 0, vy: 0, b: 0, g: GROUP_PLAYER, c: [] },
 		pla: { w: "pistol", c: 0 },
-		// mor: { h: 3 }
+		mor: { h: 3 },
 	},
 	dummy: {
 		pos: { x: 0, y: 0, f: 0 },
@@ -141,6 +147,12 @@ const WEAPONS = {
 
 const MAP_GENERATORS = [(x, y) => x % 4 === 0 && y % 4 === 0];
 
+/** Game state controls the high-level game phases */
+let game_state = "load";
+
+/** Game timer holds the number of milliseconds until a state change */
+let game_timer = 0;
+
 /** Keyboard state */
 const keyboard = {};
 
@@ -171,6 +183,49 @@ let camera_facing_y = 0;
 let camera_plane_x = 0;
 let camera_plane_y = CAMERA_PLANE_LENGTH;
 
+/** UI elements */
+const ui = [];
+
+const overlay = add_ui({
+	e: 0,
+	x: 0,
+	y: 0,
+	w: CAMERA_WIDTH,
+	h: CAMERA_HEIGHT,
+	c: "#000",
+	a: 1,
+});
+
+const text_pre = add_ui({
+	e: 1,
+	t: "",
+	s: 64,
+	c: "#c8c8c8",
+	x: CAMERA_WIDTH / 2,
+	y: CAMERA_HEIGHT * 0.25,
+	a: 0,
+});
+
+const text_main = add_ui({
+	e: 1,
+	t: "",
+	s: 128,
+	c: "#27badb",
+	x: CAMERA_WIDTH / 2,
+	y: CAMERA_HEIGHT / 2,
+	a: 0,
+});
+
+const text_cta = add_ui({
+	e: 1,
+	t: "",
+	s: 32,
+	c: "#fff",
+	x: CAMERA_WIDTH / 2,
+	y: CAMERA_HEIGHT * 0.75,
+	a: 0,
+});
+
 /** Player entity */
 let player_id = 0;
 
@@ -179,6 +234,9 @@ const components = {};
 
 /** Next entity ID */
 let next_entity_id = 1;
+
+/** Active tweens */
+const tweens = [];
 
 /** Simulation systems which operate on entities */
 const systems = [];
@@ -213,8 +271,22 @@ function distance(x1, y1, x2, y2) {
 	return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
 
+/** Clamp a number between two values */
+function clamp(value, min, max) {
+	return Math.min(Math.max(value, min), max);
+}
+
+function lerp(a, b, t) {
+	return a + (b - a) * t;
+}
+
 function map_number(x, in_min, in_max, out_min, out_max) {
 	return ((x - in_min) * (out_max - out_min)) / (in_max - in_min) + out_min;
+}
+
+function add_ui(element) {
+	ui.push(element);
+	return element;
 }
 
 /** Initialize the map to a new size */
@@ -237,7 +309,20 @@ function generate_map(width, height) {
 		const x = i % map_width;
 		const y = Math.floor(i / map_width);
 		map_tiles[i] = generator(x, y, width, height) ? 1 : 0;
-		if (map_tiles[i] === 0 && Math.random() < 0.1) {
+	}
+}
+
+function spawn_hazards() {
+	const cx = Math.floor(map_width / 2);
+	const cy = Math.floor(map_height / 2);
+	for (let i = 0; i < map_tiles.length; i++) {
+		const x = i % map_width;
+		const y = Math.floor(i / map_width);
+		if (
+			map_tiles[i] === 0 &&
+			distance(x, y, cx, cy) > 4 &&
+			Math.random() < 0.1
+		) {
 			const angle = Math.random() * Math.PI * 2;
 			const prefab = random_pick(["dummy", "slime"]);
 			const id = spawn_prefab_entity(prefab, x + 0.5, y + 0.5, 0);
@@ -359,6 +444,24 @@ function remove_entity(id) {
 	}
 }
 
+function clear_entities() {
+	for (const key in components) {
+		delete components[key];
+	}
+}
+
+/** Tween a property on a target to a specified value */
+function tween(subject, prop, to, duration) {
+	tweens.push({
+		s: subject,
+		p: prop,
+		f: subject[prop],
+		t: to,
+		d: duration,
+		e: 0,
+	});
+}
+
 /** Return the sign of a given number */
 function sign(n) {
 	return n > 0 ? 1 : n === 0 ? 0 : -1;
@@ -474,13 +577,39 @@ function raycast(ox, oy, dx, dy) {
 	return result;
 }
 
+function render_rect(x, y, width, height, color) {
+	ctx.fillStyle = color;
+	ctx.fillRect(x, y, width, height);
+}
+
+function render_text(text, size, color, x, y) {
+	const shadow_offset = Math.floor(size / 16);
+	ctx.font = `${size}px Menlo, monospace`;
+	const metrics = ctx.measureText(text);
+	ctx.fillStyle = "#202040";
+	ctx.fillText(
+		text.toUpperCase(),
+		x - metrics.width / 2 + shadow_offset,
+		y + shadow_offset
+	);
+	ctx.fillStyle = color;
+	ctx.fillText(text.toUpperCase(), x - metrics.width / 2, y);
+}
+
 // #############################################################################
 // ### SYSTEMS #################################################################
 // #############################################################################
 
 /** User input system */
 function system_input(dt) {
+	if (game_state !== "play") {
+		return;
+	}
+
 	const pla = get_entity_component(player_id, "pla");
+	if (pla === undefined) {
+		return;
+	}
 	const pos = get_entity_component(player_id, "pos");
 	// Decrease player attack cooldown
 	if (pla.c > 0) {
@@ -717,10 +846,150 @@ function system_mortal() {
 	}
 }
 
+function system_game(dt) {
+	if (game_timer > 0) {
+		game_timer -= dt;
+	}
+	switch (game_state) {
+		case "load":
+			if (game_timer <= 0) {
+				game_state = "load_outro";
+				game_timer += 1;
+				tween(overlay, "a", 0, 1);
+			}
+			break;
+		case "load_outro":
+			if (game_timer <= 0) {
+				game_state = "title_intro";
+				game_timer += 0.5;
+				text_pre.t = STRING_TITLE_PRE;
+				text_main.t = STRING_TITLE;
+				text_main.c = "#27badb";
+				text_cta.t = STRING_START;
+				tween(text_pre, "a", 1, 0.5);
+				tween(text_main, "a", 1, 0.5);
+				tween(text_cta, "a", 1, 0.5);
+			}
+			break;
+		case "title_intro":
+			if (game_timer <= 0) {
+				game_state = "title";
+			}
+			break;
+		case "title":
+			if (key_down(32)) {
+				game_state = "title_outro";
+				game_timer += 0.5;
+				tween(text_pre, "a", 0, 0.25);
+				tween(text_main, "a", 0, 0.25);
+				tween(text_cta, "a", 0, 0.25);
+			}
+			break;
+		case "title_outro":
+			if (game_timer <= 0) {
+				game_state = "play";
+				player_id = spawn_prefab_entity(
+					"player",
+					camera_x,
+					camera_y,
+					Math.atan2(camera_facing_y, camera_facing_x)
+				);
+				spawn_hazards();
+			}
+			break;
+		case "play":
+			const pos = get_entity_component(player_id, "pos");
+			if (pos === undefined) {
+				game_state = "play_outro";
+				game_timer += 2;
+				overlay.c = "#4c0000";
+				overlay.a = 0;
+				tween(overlay, "a", 1, 1.5);
+			}
+			break;
+		case "play_outro":
+			if (game_timer <= 0) {
+				clear_entities();
+				game_state = "lost_intro";
+				game_timer += 1;
+				text_main.t = STRING_GAME_OVER;
+				text_main.c = "#ffffff";
+				text_cta.t = STRING_RESTART;
+				tween(text_main, "a", 1, 1);
+				tween(text_cta, "a", 1, 1);
+			}
+			break;
+		case "lost_intro":
+			if (game_timer <= 0) {
+				game_state = "lost";
+			}
+			break;
+		case "lost":
+			if (key_down(32)) {
+				game_state = "lost_outro";
+				game_timer += 0.5;
+				tween(text_main, "a", 0, 0.25);
+				tween(text_cta, "a", 0, 0.25);
+			}
+			break;
+		case "lost_outro":
+			if (game_timer <= 0) {
+				game_state = "load";
+				game_timer = 0.5;
+				overlay.a = 1;
+				overlay.c = "#000";
+				generate_map(21, 21);
+				set_camera(
+					Math.floor(map_width / 2) + 0.5,
+					Math.floor(map_height / 2) + 0.5,
+					1,
+					0
+				);
+			}
+			break;
+	}
+}
+
 /** Camera management system */
-function system_camera() {
-	const pos = get_entity_component(player_id, "pos");
-	set_camera(pos.x, pos.y, Math.cos(pos.f), Math.sin(pos.f));
+function system_camera(dt) {
+	switch (game_state) {
+		case "load":
+		case "load_outro":
+		case "title_intro":
+		case "title":
+			let angle = Math.atan2(camera_facing_y, camera_facing_x);
+			angle += TAU * 0.00625 * dt;
+			set_camera(camera_x, camera_y, Math.cos(angle), Math.sin(angle));
+			break;
+		case "play":
+			const pos = get_entity_component(player_id, "pos");
+			if (pos !== undefined) {
+				set_camera(pos.x, pos.y, Math.cos(pos.f), Math.sin(pos.f));
+			}
+			break;
+	}
+}
+
+/** Tweening system */
+function system_tween(dt) {
+	const deadpool = [];
+
+	// Update tweens
+	for (let i = 0; i < tweens.length; i++) {
+		const tw = tweens[i];
+		tw.e += dt;
+		const t = clamp(tw.e / tw.d, 0, 1);
+		tw.s[tw.p] = lerp(tw.f, tw.t, t);
+		if (tw.e >= tw.d) {
+			deadpool.push(i);
+		}
+	}
+
+	// Remove dead tweens
+	for (let i = deadpool.length - 1; i >= 0; i--) {
+		const index = deadpool[i];
+		tweens.splice(index, 1);
+	}
 }
 
 /** Animation system */
@@ -761,12 +1030,9 @@ function system_ttl(dt) {
 function system_render_map() {
 	const half_height = CAMERA_HEIGHT / 2;
 
-	const pos = get_entity_component(player_id, "pos");
-	const angle = ((pos.f % TAU) + TAU) % TAU;
+	const facing = Math.atan2(camera_facing_y, camera_facing_x);
+	const angle = ((facing % TAU) + TAU) % TAU;
 	const offset = Math.floor(map_number(angle, 0, TAU, 0, 1) * bg_buffer.width);
-
-	ctx.fillStyle = "#F0F";
-	ctx.fillRect(0, 0, canvas.width, canvas.height);
 
 	if (offset === 0) {
 		ctx.drawImage(bg_buffer, 0, 0);
@@ -939,6 +1205,24 @@ function system_render_entities() {
 	}
 }
 
+function system_render_ui() {
+	for (const element of ui) {
+		if (element.a <= 0) {
+			continue;
+		}
+		ctx.globalAlpha = element.a;
+		switch (element.e) {
+			case 0: // Rectangle
+				render_rect(element.x, element.y, element.w, element.h, element.c);
+				break;
+			case 1: // Text
+				render_text(element.t, element.s, element.c, element.x, element.y);
+				break;
+		}
+		ctx.globalAlpha = 1;
+	}
+}
+
 /** Frame handler */
 function frame(time) {
 	// Calculate delta time
@@ -1024,21 +1308,29 @@ function main() {
 		system_hazard,
 		system_mortal,
 		system_ttl,
+		system_game,
+		system_animation,
+		system_tween,
 		system_camera,
 		system_render_map,
-		system_animation,
-		system_render_entities
+		system_render_entities,
+		system_render_ui
 	);
 
-	// Init map
 	generate_map(21, 21);
 
-	// Init player
-	player_id = spawn_prefab_entity("player", 1.5, 1.5, 0);
+	set_camera(
+		Math.floor(map_width / 2) + 0.5,
+		Math.floor(map_height / 2) + 0.5,
+		1,
+		0
+	);
 
 	// Detect keyboard state
 	window.onkeydown = (e) => handle_key(e, true);
 	window.onkeyup = (e) => handle_key(e);
+
+	game_timer = 0.5;
 
 	// Start the main loop
 	last_frame = performance.now();
