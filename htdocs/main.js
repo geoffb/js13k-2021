@@ -596,7 +596,7 @@ function render_rect(x, y, width, height, color) {
 }
 
 function render_text(text, size, color, x, y) {
-	const shadow_offset = Math.floor(size / 16);
+	const shadow_offset = Math.min(Math.floor(size / 16), 4);
 	ctx.font = `${size}px Menlo, monospace`;
 	const metrics = ctx.measureText(text);
 	ctx.fillStyle = "#202040";
