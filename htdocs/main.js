@@ -145,7 +145,18 @@ const WEAPONS = {
 	},
 };
 
-const MAP_GENERATORS = [(x, y) => x % 4 === 0 && y % 4 === 0];
+const MAP_GENERATORS = [
+	(x, y) => x % 4 === 0 && y % 4 === 0,
+	(x, y, _w, _h, cx, cy) => {
+		const d = distance(x, y, cx, cy);
+		return ((d > 4 && d < 7) || d > 11) && x !== cx && y !== cy;
+	},
+	(x, y, w, h, cx) => {
+		return (
+			((x > 3 && x < cx - 2) || (x > cx + 2 && x < w - 4)) && y > 2 && y < h - 3
+		);
+	},
+];
 
 /** Game state controls the high-level game phases */
 let game_state = "load";
@@ -305,10 +316,12 @@ function init_map(width, height) {
 function generate_map(width, height) {
 	init_map(width, height);
 	const generator = random_pick(MAP_GENERATORS);
+	const cx = Math.floor(width / 2);
+	const cy = Math.floor(height / 2);
 	for (let i = 0; i < map_tiles.length; i++) {
 		const x = i % map_width;
 		const y = Math.floor(i / map_width);
-		map_tiles[i] = generator(x, y, width, height) ? 1 : 0;
+		map_tiles[i] = generator(x, y, width, height, cx, cy) ? 1 : 0;
 	}
 }
 
