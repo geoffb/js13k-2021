@@ -42,6 +42,76 @@ const COLLISION_GROUPS = new Map([
 	[hash_ids(GROUP_ENEMY, GROUP_ENEMY), 1],
 ]);
 
+function state_wander(id, dt, data) {
+	if (data.e !== undefined && data.e > 0) {
+		data.e -= dt;
+	}
+	if (data.e === undefined || data.e <= 0) {
+		const bod = get_entity_component(id, "body");
+		const angle = Math.random() * TAU;
+		bod.vx = Math.cos(angle) * 1;
+		bod.vy = Math.sin(angle) * 1;
+		data.e = 3;
+	}
+}
+
+function state_chase(id) {
+	// TODO: Parameterize speed and target
+	// TODO: Could cache target position every N ms
+	const target_pos = get_entity_component(player_id, "pos");
+	const bod = get_entity_component(id, "body");
+	if (target_pos === undefined) {
+		bod.vx = 0;
+		bod.vy = 0;
+		return;
+	}
+	const pos = get_entity_component(id, "pos");
+	const delta_x = target_pos.x - pos.x;
+	const delta_y = target_pos.y - pos.y;
+	const angle = Math.atan2(delta_y, delta_x);
+	bod.vx = Math.cos(angle) * 1.5;
+	bod.vy = Math.sin(angle) * 1.5;
+}
+
+function cond_player_near(id) {
+	return entity_distance(player_id, id) < 3;
+}
+
+function cond_player_far(id) {
+	return entity_distance(player_id, id) > 6;
+}
+
+function entity_distance(a, b) {
+	const pos_a = get_entity_component(a, "pos");
+	const pos_b = get_entity_component(b, "pos");
+	if (pos_a === undefined || pos_b === undefined) {
+		return Infinity;
+	} else {
+		return distance(pos_a.x, pos_a.y, pos_b.x, pos_b.y);
+	}
+}
+
+const BEHAVIORS = {
+	dummy: {
+		i: state_wander,
+	},
+	slime: {
+		i: state_wander,
+		t: [
+			{
+				f: state_wander,
+				c: cond_player_near,
+				t: state_chase,
+			},
+			{
+				f: state_chase,
+				c: cond_player_far,
+				t: state_wander,
+			},
+		],
+	},
+};
+
 /*
 COMPONENTS:
 
@@ -82,6 +152,17 @@ anim (Animation)
 	d: Frame delay (seconds)
 	e: Frame elapsed (seconds)
 
+beh (Behavior)
+	m: string; Behavior model
+	s: Function; Behavior state
+
+sig (Sight)
+	n: number; "Near" threshold
+	f: number; "Far" threshold
+
+tar (Target)
+	i?: number; Target ID
+
 */
 
 /** Prefabricated entities */
@@ -97,6 +178,9 @@ const PREFABS = {
 		body: { w: 0.5, h: 0.5, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
 		mor: { h: 3 },
 		sprite: { i: 1 },
+		sig: { n: 3, f: 7 },
+		tar: {},
+		beh: { m: "dummy" },
 	},
 	slime: {
 		pos: { x: 0, y: 0, f: 0 },
@@ -105,6 +189,9 @@ const PREFABS = {
 		mor: { h: 6 },
 		sprite: { i: 6 },
 		anim: { f: [6, 7], i: 0, d: 0.25, e: 0 },
+		sig: { n: 3, f: 7 },
+		tar: {},
+		beh: { m: "slime" },
 	},
 	bullet: {
 		pos: { x: 0, y: 0, f: 0 },
@@ -334,14 +421,10 @@ function spawn_hazards() {
 		if (
 			map_tiles[i] === 0 &&
 			distance(x, y, cx, cy) > 4 &&
-			Math.random() < 0.1
+			Math.random() < 0.05
 		) {
-			const angle = Math.random() * Math.PI * 2;
 			const prefab = random_pick(["dummy", "slime"]);
-			const id = spawn_prefab_entity(prefab, x + 0.5, y + 0.5, 0);
-			const body = get_entity_component(id, "body");
-			body.vx = Math.cos(angle) * 0.75;
-			body.vy = Math.sin(angle) * 0.75;
+			spawn_prefab_entity(prefab, x + 0.5, y + 0.5, 0);
 		}
 	}
 }
@@ -1039,6 +1122,43 @@ function system_ttl(dt) {
 	}
 }
 
+/** Behavior system */
+function system_behavior(dt) {
+	const behaviors = components.beh;
+	if (behaviors === undefined) {
+		return;
+	}
+
+	// Update behaviors
+	for (const [id, behavior] of behaviors) {
+		const model = BEHAVIORS[behavior.m];
+		if (behavior.s === undefined) {
+			// Set initial state
+			behavior.s = model.i;
+			behavior.d = {};
+		}
+
+		// Evaluate state transitions
+		if (model.t !== undefined) {
+			for (const transition of model.t) {
+				// Only evaluate transitions from the current state
+				if (transition.f !== behavior.s) {
+					continue;
+				}
+
+				// Evaluate transition condition
+				if (transition.c(id)) {
+					behavior.s = transition.t;
+					break;
+				}
+			}
+		}
+
+		// Execute current state
+		behavior.s(id, dt, behavior.d);
+	}
+}
+
 /** Render the map/world to the canvas */
 function system_render_map() {
 	const half_height = CAMERA_HEIGHT / 2;
@@ -1317,6 +1437,7 @@ function main() {
 	// Init systems
 	systems.push(
 		system_input,
+		system_behavior,
 		system_physics,
 		system_hazard,
 		system_mortal,
