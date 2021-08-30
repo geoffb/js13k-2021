@@ -13,6 +13,7 @@ My 2021 entry for the [js13kGames](https://js13kgames.com) competition.
 | `ac7a061` | `3760`       | Player shooting + enemy damage/death                |
 | `ed1a546` | `4467`       | Simple map procgen + skybox + animated sprites      |
 | `8af4efd` | `5356`       | Title -> Play -> Game Over flow                     |
+| `767fd04` | `5701`       | Behavior system + new maps                          |
 
 ## TODO
 
