@@ -35,51 +35,69 @@ const SUPPRESS_KEYS = [13, 32, 37, 38, 39, 40, 65, 68, 83, 87];
 /** Entity groups */
 const GROUP_PLAYER = 1;
 const GROUP_ENEMY = 2;
+const GROUP_ENVIRONMENT = 3;
 
 /** Collision groups (controls which groups collide with which other groups */
 const COLLISION_GROUPS = new Map([
 	[hash_ids(GROUP_PLAYER, GROUP_ENEMY), 1],
 	[hash_ids(GROUP_ENEMY, GROUP_ENEMY), 1],
+	[hash_ids(GROUP_PLAYER, GROUP_ENVIRONMENT), 1],
+	[hash_ids(GROUP_ENEMY, GROUP_ENVIRONMENT), 1],
+	[hash_ids(GROUP_ENVIRONMENT, GROUP_ENVIRONMENT), 1],
 ]);
 
-function state_wander(id, dt, data) {
-	if (data.e !== undefined && data.e > 0) {
-		data.e -= dt;
-	}
-	if (data.e === undefined || data.e <= 0) {
+const state_idle = {
+	e: (id) => play_animation(id, 0),
+};
+
+const state_wander = {
+	e: (id) => {
+		// Randomly select a direction
 		const bod = get_entity_component(id, "body");
 		const angle = Math.random() * TAU;
 		bod.vx = Math.cos(angle) * 1;
 		bod.vy = Math.sin(angle) * 1;
-		data.e = 3;
-	}
-}
+		play_animation(id, 0);
+	},
+};
 
-function state_chase(id) {
-	// TODO: Parameterize speed and target
-	// TODO: Could cache target position every N ms
-	const target_pos = get_entity_component(player_id, "pos");
-	const bod = get_entity_component(id, "body");
-	if (target_pos === undefined) {
-		bod.vx = 0;
-		bod.vy = 0;
-		return;
-	}
-	const pos = get_entity_component(id, "pos");
-	const delta_x = target_pos.x - pos.x;
-	const delta_y = target_pos.y - pos.y;
-	const angle = Math.atan2(delta_y, delta_x);
-	bod.vx = Math.cos(angle) * 1.5;
-	bod.vy = Math.sin(angle) * 1.5;
-}
+const state_chase = {
+	e: (id) => {
+		const target_pos = get_entity_component(player_id, "pos");
+		const bod = get_entity_component(id, "body");
+		if (target_pos === undefined) {
+			bod.vx = 0;
+			bod.vy = 0;
+			return;
+		}
+		const pos = get_entity_component(id, "pos");
+		const delta_x = target_pos.x - pos.x;
+		const delta_y = target_pos.y - pos.y;
+		pos.f = Math.atan2(delta_y, delta_x);
+		bod.vx = Math.cos(pos.f) * 1.5;
+		bod.vy = Math.sin(pos.f) * 1.5;
+		play_animation(id, 0);
+	},
+};
 
-function cond_player_near(id) {
-	return entity_distance(player_id, id) < 3;
-}
+const state_attack_windup = {
+	e: (id) => {
+		const body = get_entity_component(id, "body");
+		body.vx = 0;
+		body.vy = 0;
+		play_animation(id, 1);
+	},
+};
 
-function cond_player_far(id) {
-	return entity_distance(player_id, id) > 6;
-}
+const state_attack = {
+	e: (id) => {
+		const pos = get_entity_component(id, "pos");
+		const x = pos.x + Math.cos(pos.f) * 1;
+		const y = pos.y + Math.sin(pos.f) * 1;
+		spawn_prefab_entity("dmg_enemy", x, y, pos.f);
+		play_animation(id, 2);
+	},
+};
 
 function entity_distance(a, b) {
 	const pos_a = get_entity_component(a, "pos");
@@ -91,6 +109,10 @@ function entity_distance(a, b) {
 	}
 }
 
+function player_distance(id) {
+	return entity_distance(player_id, id);
+}
+
 const BEHAVIORS = {
 	dummy: {
 		i: state_wander,
@@ -99,14 +121,50 @@ const BEHAVIORS = {
 		i: state_wander,
 		t: [
 			{
+				// Wander -> Wander on interval
 				f: state_wander,
-				c: cond_player_near,
+				d: 3,
+				t: state_wander,
+			},
+			{
+				// Wander -> Chase when player is near
+				f: state_wander,
+				c: (id) => player_distance(id) < 5,
 				t: state_chase,
 			},
 			{
+				// Chase -> Chase on interval
 				f: state_chase,
-				c: cond_player_far,
+				d: 0.2,
+				t: state_chase,
+			},
+			{
+				// Chase -> Wander when player is far
+				f: state_chase,
+				c: (id) => player_distance(id) > 9,
 				t: state_wander,
+			},
+			{
+				// Chase -> Attack windup when player is very close
+				f: state_chase,
+				c: (id) => player_distance(id) < 1,
+				t: state_attack_windup,
+			},
+			{
+				// Attack windup -> Attack
+				f: state_attack_windup,
+				d: 0.5,
+				t: state_attack,
+			},
+			{
+				f: state_attack,
+				d: 0.5,
+				t: state_idle,
+			},
+			{
+				f: state_idle,
+				d: 0.5,
+				t: state_chase,
 			},
 		],
 	},
@@ -146,22 +204,17 @@ pla (Player)
 sprite (Sprite)
 	i: Sprite sheet index
 
-anim (Animation)
-	f: Frame indices
+ani (Animation)
+	f: Array of frame indices, e.g. [[1, 2], [3, 4, 5]] (two animations)
+	a: Current animation index
 	i: Current frame index
 	d: Frame delay (seconds)
 	e: Frame elapsed (seconds)
 
 beh (Behavior)
 	m: string; Behavior model
-	s: Function; Behavior state
-
-sig (Sight)
-	n: number; "Near" threshold
-	f: number; "Far" threshold
-
-tar (Target)
-	i?: number; Target ID
+	s: object; Behavior state
+	e: number; Elapsed time in current state
 
 */
 
@@ -185,12 +238,17 @@ const PREFABS = {
 	slime: {
 		pos: { x: 0, y: 0, f: 0 },
 		body: { w: 0.8, h: 0.8, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
-		haz: { d: 1 },
 		mor: { h: 6 },
 		sprite: { i: 6 },
-		anim: { f: [6, 7], i: 0, d: 0.25, e: 0 },
-		sig: { n: 3, f: 7 },
-		tar: {},
+		ani: { f: [[6, 7], [10], [7]], i: 0, d: 0.25, e: 0, a: 0 },
+		beh: { m: "slime" },
+	},
+	slime2: {
+		pos: { x: 0, y: 0, f: 0 },
+		body: { w: 0.8, h: 0.8, vx: 0, vy: 0, b: 1, g: GROUP_ENEMY, c: [] },
+		mor: { h: 6 },
+		sprite: { i: 6 },
+		ani: { f: [[11, 12], [13], [12]], i: 0, d: 0.25, e: 0, a: 0 },
 		beh: { m: "slime" },
 	},
 	bullet: {
@@ -211,8 +269,42 @@ const PREFABS = {
 	boom: {
 		pos: { x: 0, y: 0, f: 0 },
 		sprite: { i: 3 },
-		anim: { f: [3, 4, 5], i: 0, d: 0.1, e: 0 },
+		ani: { f: [[3, 4, 5]], i: 0, d: 0.1, e: 0, a: 0 },
 		ttl: { d: 0.3 },
+	},
+	rift: {
+		pos: { x: 0, y: 0, f: 0 },
+		sprite: { i: 8 },
+		ani: { f: [[8, 9]], i: 0, d: 0.25, e: 0, a: 0 },
+	},
+	tnt: {
+		pos: { x: 0, y: 0, f: 0 },
+		body: {
+			w: 0.5,
+			h: 0.5,
+			vx: 0,
+			vy: 0,
+			b: 0,
+			g: GROUP_ENVIRONMENT,
+			c: [],
+		},
+		mor: { h: 2 },
+		sprite: { i: 1 },
+	},
+	dmg_enemy: {
+		pos: { x: 0, y: 0, f: 0 },
+		body: {
+			w: 1,
+			h: 1,
+			vx: 0,
+			vy: 0,
+			b: 0,
+			t: 1,
+			g: GROUP_ENEMY,
+			c: [],
+		},
+		haz: { d: 1, o: 1 },
+		ttl: { d: 0.25 },
 	},
 };
 
@@ -423,7 +515,7 @@ function spawn_hazards() {
 			distance(x, y, cx, cy) > 4 &&
 			Math.random() < 0.05
 		) {
-			const prefab = random_pick(["dummy", "slime"]);
+			const prefab = random_pick([/*"dummy",*/ "slime2", "slime"]);
 			spawn_prefab_entity(prefab, x + 0.5, y + 0.5, 0);
 		}
 	}
@@ -455,6 +547,15 @@ function key_down(...keys) {
 		}
 	}
 	return false;
+}
+
+function play_animation(id, index) {
+	const anim = get_entity_component(id, "ani");
+	if (anim.a !== index) {
+		anim.a = index;
+		anim.i = anim.f[anim.a][0];
+		anim.e = 0;
+	}
 }
 
 /** Clear the spatial lookup map */
@@ -1090,20 +1191,24 @@ function system_tween(dt) {
 
 /** Animation system */
 function system_animation(dt) {
-	const anims = components.anim;
+	const anims = components.ani;
 	if (anims === undefined) {
 		return;
 	}
 
 	for (const [id, anim] of anims) {
+		if (anim.a === undefined) {
+			continue;
+		}
 		anim.e += dt;
+		const frames = anim.f[anim.a];
 		if (anim.e >= anim.d) {
 			anim.e -= anim.d;
-			if (++anim.i >= anim.f.length) {
+			if (++anim.i >= frames.length) {
 				anim.i = 0;
 			}
 			const sprite = get_entity_component(id, "sprite");
-			sprite.i = anim.f[anim.i];
+			sprite.i = frames[anim.i];
 		}
 	}
 }
@@ -1135,8 +1240,16 @@ function system_behavior(dt) {
 		if (behavior.s === undefined) {
 			// Set initial state
 			behavior.s = model.i;
-			behavior.d = {};
+			behavior.e = 0;
+
+			// Trigger state enter
+			if (behavior.s.e !== undefined) {
+				behavior.s.e(id);
+			}
 		}
+
+		// Increment elapsed time within this state
+		behavior.e += dt;
 
 		// Evaluate state transitions
 		if (model.t !== undefined) {
@@ -1146,16 +1259,33 @@ function system_behavior(dt) {
 					continue;
 				}
 
-				// Evaluate transition condition
-				if (transition.c(id)) {
+				// Evaluate transition conditions
+				if (
+					(transition.d !== undefined && behavior.e >= transition.d) ||
+					(transition.c !== undefined && transition.c(id))
+				) {
+					// Trigger state exit
+					if (behavior.s.x !== undefined) {
+						behavior.s.x(id);
+					}
+
+					// Set new state
 					behavior.s = transition.t;
+					behavior.e = 0;
+
+					// Trigger state enter
+					if (behavior.s.e !== undefined) {
+						behavior.s.e(id);
+					}
 					break;
 				}
 			}
 		}
 
-		// Execute current state
-		behavior.s(id, dt, behavior.d);
+		// Trigger state update
+		if (behavior.s.u !== undefined) {
+			behavior.s.u(id, dt);
+		}
 	}
 }
 

@@ -17,9 +17,10 @@ My 2021 entry for the [js13kGames](https://js13kgames.com) competition.
 
 ## TODO
 
-- Track/display elapsed time
-- Procgen rooms (terrain + entities)
-- Room -> room
-- Win -> Restart loop
-- More enemies
-- More weapons
+### Must
+
+- Improve game content
+  - More enemies
+  - Powerups
+  - Player weapons
+- Level win condition

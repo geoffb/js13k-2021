@@ -1,0 +1,14 @@
+{
+  "actions" : {
+    "build" : {
+      "enabled" : true,
+      "script" : "#!\/bin\/sh\nyarn lint\nyarn build"
+    },
+    "clean" : {
+      "enabled" : true,
+      "script" : "#!\/bin\/sh\nyarn clean"
+    }
+  },
+  "identifier" : "8AD3DA3F-304F-468C-97A5-6A8323159B08",
+  "openLogOnRun" : "fail"
+}

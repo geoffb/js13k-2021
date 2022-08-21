@@ -1,0 +1,6 @@
+{
+  "apexskier.typescript.config.isEnabledForJavascript" : "Enable",
+  "editor.default_syntax" : "javascript",
+  "prettier.format-on-save.ignore-without-config" : "Disable",
+  "workspace.name" : "JS13k 2021"
+}
