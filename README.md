@@ -14,6 +14,7 @@ My 2021 entry for the [js13kGames](https://js13kgames.com) competition.
 | `ed1a546` | `4467`       | Simple map procgen + skybox + animated sprites      |
 | `8af4efd` | `5356`       | Title -> Play -> Game Over flow                     |
 | `767fd04` | `5701`       | Behavior system + new maps                          |
+| `44a6112` | `6271`       | Behavior work + entities                            |
 
 ## TODO
 
